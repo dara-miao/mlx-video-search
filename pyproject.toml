@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mlx-video-search"
+version = "0.1.0"
+description = "Natural-language search over local video clips using MLX Qwen3-VL."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "mlx-vlm",
+  "opencv-python-headless",
+  "pillow",
+  "tqdm",
+  "fastapi",
+  "uvicorn",
+]
+
+[project.scripts]
+mlx-video-search = "mlx_video_search.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mlx_video_search"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/mlx_video_search" = "mlx_video_search"

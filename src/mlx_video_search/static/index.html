@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Find a moment</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --navy: #021627;
+      --deep: #032c45;
+      --foam: #f7fdff;
+      --mist: rgba(214, 240, 255, 0.72);
+      --teal: #5ce6d6;
+      --teal-deep: #2ec9c0;
+      --glass: rgba(4, 28, 48, 0.38);
+      --glass-2: rgba(8, 42, 68, 0.5);
+      --stroke: rgba(255, 255, 255, 0.2);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: Manrope, sans-serif;
+      color: var(--foam);
+      background: var(--navy);
+      min-height: 100vh;
+    }
+    button, input { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    .sea {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      background: #02111f;
+    }
+    .sea::before {
+      content: "";
+      position: absolute;
+      inset: -18%;
+      background:
+        radial-gradient(ellipse 90% 70% at 78% 92%, rgba(94, 230, 214, 0.38), transparent 58%),
+        radial-gradient(ellipse 55% 45% at 18% 12%, rgba(4, 28, 52, 0.95), transparent 62%),
+        radial-gradient(ellipse 50% 40% at 88% 38%, rgba(232, 252, 255, 0.14), transparent 55%),
+        linear-gradient(168deg, #021627 0%, #03263d 38%, #05485a 64%, #167f7c 100%);
+      animation: drift 32s ease-in-out infinite alternate;
+    }
+    @keyframes drift {
+      from { transform: translate3d(-3%, -2%, 0) scale(1.04); }
+      to { transform: translate3d(3%, 3%, 0) scale(1.1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .sea::before, .typed::after, .skel { animation: none; }
+    }
+    .shell {
+      position: relative;
+      z-index: 1;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 28px 24px 96px;
+      min-height: 100vh;
+    }
+    .top {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 48px;
+    }
+    .folder-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: var(--glass);
+      border: 1px solid var(--stroke);
+      backdrop-filter: blur(18px) saturate(1.5);
+      -webkit-backdrop-filter: blur(18px) saturate(1.5);
+      color: var(--mist);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      appearance: none;
+    }
+    .folder-chip:hover { background: rgba(8, 42, 68, 0.62); }
+    .folder-chip b { color: var(--foam); font-weight: 600; }
+    .hero { max-width: none; }
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(40px, 7vw, 72px);
+      font-weight: 600;
+      letter-spacing: -0.045em;
+      line-height: 0.96;
+      text-shadow: 0 10px 40px rgba(0, 10, 24, 0.45);
+    }
+    .lede {
+      margin: 0 0 28px;
+      max-width: 34rem;
+      color: var(--mist);
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .search {
+      display: flex;
+      gap: 8px;
+      padding: 8px;
+      border-radius: 22px;
+      background: var(--glass);
+      border: 1px solid var(--stroke);
+      backdrop-filter: blur(22px) saturate(1.6);
+      -webkit-backdrop-filter: blur(22px) saturate(1.6);
+      box-shadow: 0 24px 60px rgba(0, 8, 20, 0.35);
+    }
+    .search:focus-within {
+      border-color: rgba(94, 230, 214, 0.45);
+      box-shadow: 0 24px 60px rgba(0, 8, 20, 0.35), 0 0 0 3px rgba(94, 230, 214, 0.12);
+    }
+    .search-field {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+    }
+    .search input {
+      width: 100%;
+      background: transparent;
+      border: 0;
+      outline: none;
+      padding: 14px 16px;
+      font-size: 17px;
+      font-weight: 500;
+      position: relative;
+      z-index: 1;
+    }
+    .search input::placeholder { color: transparent; }
+    .typed {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      color: rgba(214, 240, 255, 0.45);
+      font-size: 17px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .typed[hidden] { display: none; }
+    .typed::after {
+      content: "";
+      display: inline-block;
+      width: 1.5px;
+      height: 1.05em;
+      margin-left: 3px;
+      background: rgba(214, 240, 255, 0.5);
+      vertical-align: -2px;
+      animation: blink 1s steps(1) infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+    .btn {
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 18px;
+      background: var(--teal);
+      color: var(--navy);
+      font-weight: 700;
+    }
+    .btn:hover { background: #8ff3e6; }
+    .btn:disabled { opacity: .55; cursor: default; }
+    .btn.ghost {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--foam);
+      border: 1px solid var(--stroke);
+    }
+    .btn.ghost:hover { background: rgba(255, 255, 255, 0.14); }
+    .btn.tiny { padding: 8px 12px; font-size: 13px; border-radius: 11px; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0 0;
+    }
+    .status {
+      color: var(--mist);
+      font-size: 13px;
+      min-height: 1.4em;
+      margin-top: 16px;
+    }
+    .progress {
+      display: none;
+      margin-top: 16px;
+      height: 5px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .progress.on { display: block; }
+    .progress > i {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, var(--teal-deep), #dffcff);
+      transition: width 0.35s ease;
+    }
+    .results-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 32px 0 12px;
+    }
+    .results-head[hidden], .empty[hidden] { display: none; }
+    .results-head h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--mist);
+      letter-spacing: -0.01em;
+    }
+    .results-head h2 em {
+      font-style: normal;
+      color: var(--foam);
+    }
+    .clear {
+      background: none;
+      border: 0;
+      padding: 0;
+      color: var(--mist);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .clear:hover { color: var(--foam); }
+    .results {
+      display: grid;
+      gap: 14px;
+    }
+    .btn.primary-ghost {
+      background: rgba(94, 230, 214, 0.16);
+      color: var(--foam);
+      border: 1px solid rgba(94, 230, 214, 0.45);
+    }
+    .hit {
+      display: grid;
+      grid-template-columns: 196px 1fr;
+      gap: 0 18px;
+      overflow: hidden;
+      border-radius: 22px;
+      background: var(--glass-2);
+      border: 1px solid var(--stroke);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      cursor: pointer;
+    }
+    .hit:hover, .hit:focus-visible {
+      border-color: rgba(94, 230, 214, 0.4);
+      background: rgba(8, 48, 72, 0.62);
+    }
+    .hit:focus-visible {
+      outline: 2px solid var(--teal);
+      outline-offset: 3px;
+    }
+    .thumb {
+      position: relative;
+      min-height: 132px;
+      background: #021018;
+    }
+    .hit img {
+      width: 100%;
+      height: 100%;
+      min-height: 132px;
+      max-height: 168px;
+      object-fit: cover;
+      display: block;
+    }
+    .stamp {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      padding: 3px 8px;
+      border-radius: 8px;
+      background: rgba(2, 16, 28, 0.72);
+      color: var(--foam);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      backdrop-filter: blur(8px);
+    }
+    .hit-body { padding: 16px 18px 16px 0; display: flex; flex-direction: column; min-width: 0; }
+    .hit p:empty { display: none; }
+    .meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+      color: var(--mist);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .hit h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    .hit p {
+      margin: 0;
+      color: var(--mist);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .hit-open {
+      margin-top: auto;
+      padding-top: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .hit-open span {
+      color: var(--teal);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .empty {
+      margin-top: 12px;
+      padding: 18px 24px;
+      border-radius: 22px;
+      background: var(--glass);
+      border: 1px solid var(--stroke);
+      backdrop-filter: blur(22px) saturate(1.6);
+      -webkit-backdrop-filter: blur(22px) saturate(1.6);
+      color: var(--mist);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .skel {
+      min-height: 148px;
+      border-radius: 22px;
+      background: linear-gradient(
+        100deg,
+        rgba(8, 42, 68, 0.45) 20%,
+        rgba(94, 230, 214, 0.12) 40%,
+        rgba(8, 42, 68, 0.45) 60%
+      );
+      background-size: 200% 100%;
+      border: 1px solid var(--stroke);
+      animation: shine 1.4s ease-in-out infinite;
+    }
+    @keyframes shine {
+      from { background-position: 100% 0; }
+      to { background-position: -100% 0; }
+    }
+    @media (max-width: 680px) {
+      .top { margin-bottom: 28px; }
+      .hit { grid-template-columns: 1fr; }
+      .hit-body { padding: 14px 16px 16px; }
+      .hit img, .thumb { max-height: 200px; min-height: 160px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sea" aria-hidden="true"></div>
+  <div class="shell">
+    <div class="top">
+      <button class="folder-chip" id="folderChip" type="button">No folder selected</button>
+    </div>
+    <div class="hero">
+      <h1>Find a moment.</h1>
+      <p class="lede">Ask however you’d say it. We’ll look at the frames.</p>
+      <form class="search" id="searchForm">
+        <div class="search-field">
+          <input id="query" type="text" autocomplete="off" spellcheck="false" aria-label="Search for a moment" />
+          <span class="typed" id="placeholderGhost" aria-hidden="true"></span>
+        </div>
+        <button class="btn" id="searchBtn" type="submit">Search</button>
+      </form>
+      <div class="toolbar">
+        <button class="btn ghost tiny" id="browseBtn" type="button">Choose folder</button>
+        <button class="btn ghost tiny" id="indexBtn" type="button">Index library</button>
+        <button class="btn ghost tiny" id="cancelBtn" type="button" hidden>Stop</button>
+      </div>
+      <div class="progress" id="progress"><i></i></div>
+      <div class="status" id="status" aria-live="polite"></div>
+      <div class="empty" id="empty">Choose a folder of clips, then index it. You can stop and resume anytime.</div>
+    </div>
+    <div class="results-head" id="resultsHead" hidden>
+      <h2 id="resultsTitle"></h2>
+      <button class="clear" id="clearResults" type="button">Clear</button>
+    </div>
+    <div class="results" id="results"></div>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = { busy: false, showingResults: false, lastJob: "", lastQuery: "" };
+    const EXAMPLES = [
+      "the moment we hit the water",
+      "someone waving at the camera",
+      "the splash",
+      "a boat cutting through the wake",
+      "hands in the air",
+      "looking back at the shore",
+    ];
+
+    function startTypedPlaceholder(input, ghost) {
+      let example = 0;
+      let text = "";
+      let deleting = false;
+      let waitUntil = 0;
+
+      const tick = () => {
+        const now = Date.now();
+        const busy = Boolean(input.value) || document.activeElement === input;
+        ghost.hidden = busy;
+        if (busy) {
+          window.setTimeout(tick, 200);
+          return;
+        }
+        if (now < waitUntil) {
+          window.setTimeout(tick, 40);
+          return;
+        }
+        const full = EXAMPLES[example];
+        if (!deleting) {
+          text = full.slice(0, text.length + 1);
+          ghost.textContent = text;
+          if (text === full) {
+            deleting = true;
+            waitUntil = now + 2200;
+          }
+        } else {
+          text = text.slice(0, -1);
+          ghost.textContent = text;
+          if (!text) {
+            deleting = false;
+            example = (example + 1) % EXAMPLES.length;
+            waitUntil = now + 320;
+          }
+        }
+        window.setTimeout(tick, deleting ? 22 : 48);
+      };
+
+      tick();
+    }
+
+    async function api(path, options) {
+      const res = await fetch(path, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail;
+        const message = typeof detail === "string"
+          ? detail
+          : (detail && detail[0] && detail[0].msg) || res.statusText;
+        throw new Error(message);
+      }
+      return data;
+    }
+
+    function formatClock(seconds, fallback) {
+      if (typeof seconds !== "number" || Number.isNaN(seconds)) return fallback || "";
+      const total = Math.max(0, seconds);
+      const hours = Math.floor(total / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      const secs = total % 60;
+      const body = `${minutes}:${secs.toFixed(1).padStart(4, "0")}`;
+      return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${secs.toFixed(1).padStart(4, "0")}` : body;
+    }
+
+    function renderState(data) {
+      const name = data.folder ? data.folder.split("/").filter(Boolean).pop() : "No folder selected";
+      $("folderChip").innerHTML = data.folder
+        ? `<b>${escapeHtml(name)}</b> · ${data.videos_indexed}/${data.videos_on_disk} clips · ${data.frames} frames`
+        : "No folder selected";
+      if (!state.showingResults) {
+        $("status").textContent = data.job?.message || "";
+      }
+      const indexing = data.job?.status === "indexing" || data.job?.status === "loading";
+      const searching = data.job?.status === "searching";
+      state.busy = indexing || searching;
+      $("searchBtn").disabled = indexing || searching || !data.frames;
+      $("searchBtn").textContent = searching ? "Looking…" : "Search";
+      $("indexBtn").disabled = indexing || !data.folder;
+      $("indexBtn").textContent = data.pending
+        ? `Index ${data.pending} clip${data.pending === 1 ? "" : "s"}`
+        : "Index library";
+      $("indexBtn").classList.toggle("primary-ghost", Boolean(data.pending) && !indexing);
+      $("cancelBtn").hidden = !indexing;
+      $("browseBtn").disabled = indexing;
+      const bar = $("progress");
+      const inner = bar.querySelector("i");
+      if (indexing && data.job.total) {
+        bar.classList.add("on");
+        const videoPart = ((data.job.index || 1) - 1) / data.job.total;
+        const framePart = data.job.frame_total
+          ? (data.job.frame || 0) / data.job.frame_total / data.job.total
+          : 0;
+        inner.style.width = `${Math.min(100, (videoPart + framePart) * 100)}%`;
+      } else if (indexing || data.job?.status === "loading") {
+        bar.classList.add("on");
+        inner.style.width = "18%";
+      } else {
+        bar.classList.remove("on");
+        inner.style.width = "0";
+      }
+      if (!state.showingResults) {
+        updateEmpty(data);
+      }
+    }
+
+    function updateEmpty(data) {
+      if (state.showingResults) {
+        $("empty").hidden = true;
+        return;
+      }
+      $("empty").hidden = false;
+      if (!data.folder) {
+        $("empty").textContent = "Choose a folder of clips, then index it. You can stop and resume anytime.";
+      } else if (data.job?.status === "indexing" || data.job?.status === "loading") {
+        $("empty").textContent = data.job.message || "Indexing…";
+      } else if (!data.frames) {
+        $("empty").textContent = "Index this folder, then search.";
+      } else if (data.pending) {
+        $("empty").textContent = `${data.pending} clip${data.pending === 1 ? "" : "s"} still need indexing. Search works on what’s already in.`;
+      } else {
+        $("empty").textContent = "Ask for a moment the way you’d say it — a splash, a look away, whatever you’d call it.";
+      }
+    }
+
+    function showSearching(query) {
+      state.showingResults = true;
+      state.lastQuery = query;
+      $("empty").hidden = true;
+      $("resultsHead").hidden = false;
+      $("resultsTitle").innerHTML = `Looking for <em>${escapeHtml(query)}</em>`;
+      $("results").innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
+    }
+
+    function renderHits(query, hits) {
+      state.showingResults = true;
+      state.lastQuery = query;
+      $("resultsHead").hidden = false;
+      if (!hits.length) {
+        $("resultsTitle").innerHTML = `No moments for <em>${escapeHtml(query)}</em>`;
+        $("results").innerHTML = "";
+        $("empty").hidden = false;
+        $("empty").textContent = "Nothing matched in the frames we checked. Try naming what you’d see.";
+        return;
+      }
+      $("empty").hidden = true;
+      $("resultsTitle").innerHTML = `${hits.length} moment${hits.length === 1 ? "" : "s"} for <em>${escapeHtml(query)}</em>`;
+      $("results").innerHTML = hits.map((hit) => {
+        const src = `/api/frame?file=${encodeURIComponent(hit.file)}&t=${hit.timestamp_sec || 0}`;
+        const clock = formatClock(hit.timestamp_sec, hit.timestamp || "");
+        const reason = hit.reason && hit.reason !== hit.caption
+          ? `<p>${escapeHtml(hit.reason)}</p>`
+          : "";
+        return `<article class="hit" tabindex="0" data-open="${encodeURIComponent(hit.file)}" data-t="${hit.timestamp_sec || 0}">
+          <div class="thumb">
+            <img src="${src}" alt="" loading="lazy" />
+            <span class="stamp">${escapeHtml(clock)}</span>
+          </div>
+          <div class="hit-body">
+            <div class="meta"><span>${escapeHtml(hit.filename || "")}</span></div>
+            <h2>${escapeHtml(hit.caption || "Untitled moment")}</h2>
+            ${reason}
+            <div class="hit-open">
+              <span>Open at ${escapeHtml(clock)}</span>
+              <button class="btn ghost tiny" type="button" data-reveal="${encodeURIComponent(hit.file)}">Finder</button>
+            </div>
+          </div>
+        </article>`;
+      }).join("");
+    }
+
+    function clearResults() {
+      state.showingResults = false;
+      state.lastQuery = "";
+      $("results").innerHTML = "";
+      $("resultsHead").hidden = true;
+      refresh();
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[ch]));
+    }
+
+    async function refresh() {
+      renderState(await api("/api/state"));
+    }
+
+    async function chooseFolder() {
+      try {
+        state.showingResults = false;
+        $("results").innerHTML = "";
+        $("resultsHead").hidden = true;
+        renderState(await api("/api/browse", { method: "POST", body: "{}" }));
+      } catch (err) {
+        $("status").textContent = err.message;
+      }
+    }
+
+    async function openClip(file, timestamp, reveal) {
+      await api("/api/open", {
+        method: "POST",
+        body: JSON.stringify({
+          file,
+          timestamp_sec: timestamp || 0,
+          reveal: Boolean(reveal),
+        }),
+      });
+    }
+
+    $("folderChip").onclick = chooseFolder;
+    $("browseBtn").onclick = chooseFolder;
+    $("clearResults").onclick = clearResults;
+    $("indexBtn").onclick = async () => {
+      try {
+        renderState(await api("/api/index", { method: "POST", body: "{}" }));
+      } catch (err) {
+        $("status").textContent = err.message;
+      }
+    };
+    $("cancelBtn").onclick = async () => {
+      renderState(await api("/api/cancel", { method: "POST", body: "{}" }));
+    };
+    $("searchForm").onsubmit = async (event) => {
+      event.preventDefault();
+      const query = $("query").value.trim();
+      if (!query) return;
+      $("searchBtn").disabled = true;
+      $("searchBtn").textContent = "Looking…";
+      $("status").textContent = "Looking at frames…";
+      showSearching(query);
+      try {
+        const data = await api("/api/search", {
+          method: "POST",
+          body: JSON.stringify({ query }),
+        });
+        renderHits(query, data.hits || []);
+        $("status").textContent = data.hits?.length
+          ? `${data.hits.length} moment${data.hits.length === 1 ? "" : "s"}`
+          : "";
+        await refresh();
+      } catch (err) {
+        $("status").textContent = err.message;
+        $("empty").hidden = false;
+        $("empty").textContent = err.message;
+        $("results").innerHTML = "";
+      } finally {
+        $("searchBtn").textContent = "Search";
+      }
+    };
+    $("results").onclick = async (event) => {
+      const reveal = event.target.closest("[data-reveal]");
+      if (reveal) {
+        event.stopPropagation();
+        await openClip(decodeURIComponent(reveal.dataset.reveal), 0, true);
+        return;
+      }
+      const open = event.target.closest("[data-open]");
+      if (!open) return;
+      await openClip(decodeURIComponent(open.dataset.open), Number(open.dataset.t || 0));
+    };
+    $("results").onkeydown = async (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const open = event.target.closest("[data-open]");
+      if (!open || event.target.closest("[data-reveal]")) return;
+      event.preventDefault();
+      await openClip(decodeURIComponent(open.dataset.open), Number(open.dataset.t || 0));
+    };
+    $("results").oncontextmenu = async (event) => {
+      const open = event.target.closest("[data-open]");
+      if (!open) return;
+      event.preventDefault();
+      await openClip(decodeURIComponent(open.dataset.open), 0, true);
+    };
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "/" && document.activeElement !== $("query") && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        $("query").focus();
+      }
+      if (event.key === "Escape" && state.showingResults && document.activeElement !== $("query")) {
+        clearResults();
+      }
+    });
+
+    async function poll() {
+      if (!document.hidden) {
+        try {
+          const data = await api("/api/state");
+          const finishedIndex = state.lastJob === "indexing" && data.job?.status === "idle";
+          state.lastJob = data.job?.status || "";
+          if (finishedIndex) {
+            state.showingResults = false;
+            $("results").innerHTML = "";
+            $("resultsHead").hidden = true;
+          }
+          renderState(data);
+        } catch (_) {
+          /* keep last UI if the server is briefly restarting */
+        }
+      }
+      window.setTimeout(poll, state.busy ? 400 : 2000);
+    }
+
+    refresh();
+    startTypedPlaceholder($("query"), $("placeholderGhost"));
+    poll();
+  </script>
+</body>
+</html>
