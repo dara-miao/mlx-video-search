@@ -6,7 +6,7 @@
   <title>Find a moment</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
       --navy: #021627;
@@ -22,7 +22,7 @@
     * { box-sizing: border-box; }
     html, body { margin: 0; min-height: 100%; }
     body {
-      font-family: Manrope, sans-serif;
+      font-family: Inter, "Helvetica Neue", Helvetica, sans-serif;
       color: var(--foam);
       background: var(--navy);
       min-height: 100vh;
@@ -176,13 +176,39 @@
       border: 1px solid var(--stroke);
     }
     .btn.ghost:hover { background: rgba(255, 255, 255, 0.14); }
-    .btn.tiny { padding: 8px 12px; font-size: 13px; border-radius: 11px; }
+    .btn.tiny {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px 8px 8px;
+      font-size: 13px;
+      border-radius: 11px;
+    }
+    .step {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.35em;
+      height: 1.35em;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0;
+      background: rgba(2, 22, 39, 0.18);
+      color: var(--navy);
+      flex-shrink: 0;
+    }
+    .btn.ghost .step {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--foam);
+    }
     .toolbar {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
       margin: 16px 0 0;
     }
+    .toolbar[hidden] { display: none; }
     .status {
       color: var(--mist);
       font-size: 13px;
@@ -191,20 +217,47 @@
     }
     .progress {
       display: none;
+      align-items: center;
+      gap: 12px;
       margin-top: 16px;
+    }
+    .progress.on { display: flex; }
+    .progress-track {
+      flex: 1;
       height: 5px;
       background: rgba(255, 255, 255, 0.12);
       border-radius: 99px;
       overflow: hidden;
     }
-    .progress.on { display: block; }
-    .progress > i {
+    .progress-track > i {
       display: block;
       height: 100%;
       width: 0;
       background: linear-gradient(90deg, var(--teal-deep), #dffcff);
       transition: width 0.35s ease;
     }
+    .dot {
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border-radius: 50%;
+      border: 1px solid var(--stroke);
+      background: rgba(255, 255, 255, 0.08);
+      position: relative;
+      flex-shrink: 0;
+    }
+    .dot:hover { background: rgba(255, 255, 255, 0.16); }
+    .dot::before, .dot::after {
+      content: "";
+      position: absolute;
+      top: 6px;
+      width: 2.5px;
+      height: 10px;
+      border-radius: 1px;
+      background: var(--foam);
+    }
+    .dot::before { left: 7px; }
+    .dot::after { right: 7px; }
     .results-head {
       display: flex;
       align-items: baseline;
@@ -236,11 +289,6 @@
     .results {
       display: grid;
       gap: 14px;
-    }
-    .btn.primary-ghost {
-      background: rgba(94, 230, 214, 0.16);
-      color: var(--foam);
-      border: 1px solid rgba(94, 230, 214, 0.45);
     }
     .hit {
       display: grid;
@@ -369,7 +417,7 @@
     </div>
     <div class="hero">
       <h1>Find a moment.</h1>
-      <p class="lede">Ask however you’d say it. We’ll look at the frames.</p>
+      <p class="lede">Search for a moment in natural language.</p>
       <form class="search" id="searchForm">
         <div class="search-field">
           <input id="query" type="text" autocomplete="off" spellcheck="false" aria-label="Search for a moment" />
@@ -377,14 +425,16 @@
         </div>
         <button class="btn" id="searchBtn" type="submit">Search</button>
       </form>
-      <div class="toolbar">
-        <button class="btn ghost tiny" id="browseBtn" type="button">Choose folder</button>
-        <button class="btn ghost tiny" id="indexBtn" type="button">Index library</button>
-        <button class="btn ghost tiny" id="cancelBtn" type="button" hidden>Stop</button>
+      <div class="toolbar" id="toolbar">
+        <button class="btn tiny" id="browseBtn" type="button"><span class="step">1</span>Choose folder</button>
+        <button class="btn ghost tiny" id="indexBtn" type="button"><span class="step">2</span><span id="indexLabel">Index library</span></button>
       </div>
-      <div class="progress" id="progress"><i></i></div>
+      <div class="progress" id="progress">
+        <button class="dot" id="pauseBtn" type="button" aria-label="Pause indexing" title="Pause"></button>
+        <div class="progress-track"><i></i></div>
+      </div>
       <div class="status" id="status" aria-live="polite"></div>
-      <div class="empty" id="empty">Choose a folder of clips, then index it. You can stop and resume anytime.</div>
+      <div class="empty" id="empty">Choose a folder of clips, then index it.</div>
     </div>
     <div class="results-head" id="resultsHead" hidden>
       <h2 id="resultsTitle"></h2>
@@ -473,6 +523,7 @@
 
     function renderState(data) {
       const name = data.folder ? data.folder.split("/").filter(Boolean).pop() : "No folder selected";
+      $("folderChip").hidden = false;
       $("folderChip").innerHTML = data.folder
         ? `<b>${escapeHtml(name)}</b> · ${data.videos_indexed}/${data.videos_on_disk} clips · ${data.frames} frames`
         : "No folder selected";
@@ -481,18 +532,23 @@
       }
       const indexing = data.job?.status === "indexing" || data.job?.status === "loading";
       const searching = data.job?.status === "searching";
+      const needsScan = Boolean(data.folder) && (Boolean(data.pending) || !data.frames);
       state.busy = indexing || searching;
       $("searchBtn").disabled = indexing || searching || !data.frames;
       $("searchBtn").textContent = searching ? "Looking…" : "Search";
+      $("browseBtn").hidden = false;
+      $("browseBtn").disabled = indexing;
+      $("browseBtn").className = data.folder ? "btn ghost tiny" : "btn tiny";
+      $("indexBtn").hidden = false;
       $("indexBtn").disabled = indexing || !data.folder;
-      $("indexBtn").textContent = data.pending
+      $("indexBtn").className = needsScan && !indexing ? "btn tiny" : "btn ghost tiny";
+      $("indexLabel").textContent = data.pending
         ? `Index ${data.pending} clip${data.pending === 1 ? "" : "s"}`
         : "Index library";
-      $("indexBtn").classList.toggle("primary-ghost", Boolean(data.pending) && !indexing);
-      $("cancelBtn").hidden = !indexing;
-      $("browseBtn").disabled = indexing;
+      $("toolbar").hidden = false;
       const bar = $("progress");
       const inner = bar.querySelector("i");
+      $("pauseBtn").hidden = !indexing;
       if (indexing && data.job.total) {
         bar.classList.add("on");
         const videoPart = ((data.job.index || 1) - 1) / data.job.total;
@@ -519,7 +575,7 @@
       }
       $("empty").hidden = false;
       if (!data.folder) {
-        $("empty").textContent = "Choose a folder of clips, then index it. You can stop and resume anytime.";
+        $("empty").textContent = "Choose a folder of clips, then index it.";
       } else if (data.job?.status === "indexing" || data.job?.status === "loading") {
         $("empty").textContent = data.job.message || "Indexing…";
       } else if (!data.frames) {
@@ -527,7 +583,7 @@
       } else if (data.pending) {
         $("empty").textContent = `${data.pending} clip${data.pending === 1 ? "" : "s"} still need indexing. Search works on what’s already in.`;
       } else {
-        $("empty").textContent = "Ask for a moment the way you’d say it — a splash, a look away, whatever you’d call it.";
+        $("empty").textContent = "Ask for a moment in the search box.";
       }
     }
 
@@ -627,7 +683,7 @@
         $("status").textContent = err.message;
       }
     };
-    $("cancelBtn").onclick = async () => {
+    $("pauseBtn").onclick = async () => {
       renderState(await api("/api/cancel", { method: "POST", body: "{}" }));
     };
     $("searchForm").onsubmit = async (event) => {

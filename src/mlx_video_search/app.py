@@ -224,7 +224,7 @@ def api_index(body: IndexBody) -> dict[str, Any]:
         elif kind == "error":
             STATE.set_job(message=f"Skipped {event.get('filename')}: {event.get('message')}")
         elif kind == "stopped":
-            STATE.set_job(status="idle", message="Stopped. Already-indexed clips were saved.")
+            STATE.set_job(status="idle", message="Paused. Indexed clips were saved.")
         elif kind == "done":
             STATE.set_job(
                 status="idle",
@@ -256,7 +256,7 @@ def api_index(body: IndexBody) -> dict[str, Any]:
 @app.post("/api/cancel")
 def api_cancel() -> dict[str, Any]:
     STATE.stop.set()
-    STATE.set_job(message="Stopping after this frame…")
+    STATE.set_job(message="Pausing…")
     return STATE.snapshot()
 
 

@@ -34,7 +34,7 @@ These are clips from one person's camera roll:
 They asked: {query}
 
 They may use their own words for a moment. Rewrite the ask as what ONE frame
-must look like, using these clips as context — copy their world, do not invent
+must look like, using these clips as context. Copy their world, do not invent
 a different one.
 Return ONLY valid JSON:
 {{"looks_like":"what the pixels must show","not_this":"what would be a miss","precise":false,"related":["words taken from the clip descriptions that might hold this moment"],"aliases":["short related asks"]}}
