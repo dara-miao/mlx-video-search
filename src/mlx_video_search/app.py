@@ -79,6 +79,7 @@ class AppState:
         self.job: dict[str, Any] = {
             "status": "idle",
             "message": "",
+            "thoughts": [],
         }
         last = _load_config().get("folder")
         if last:
@@ -118,10 +119,29 @@ class AppState:
         with self.lock:
             self.job.update(fields)
 
+    def add_thought(self, text: str) -> None:
+        text = str(text or "").strip()
+        if not text:
+            return
+        with self.lock:
+            thoughts = list(self.job.get("thoughts") or [])
+            if thoughts and thoughts[-1] == text:
+                self.job["message"] = text
+                return
+            thoughts.append(text)
+            self.job["thoughts"] = thoughts[-16:]
+            self.job["message"] = text
+
     def get_vlm(self) -> FrameVLM:
         with self.load_lock:
             if self.vlm is None:
-                self.set_job(status="loading", message="Loading Qwen3-VL…")
+                searching = False
+                with self.lock:
+                    searching = self.job.get("status") == "searching"
+                if searching:
+                    self.add_thought("Loading Qwen3-VL…")
+                else:
+                    self.set_job(status="loading", message="Loading Qwen3-VL…")
                 self.vlm = FrameVLM(self.model_id)
                 self.vlm.load()
             return self.vlm
@@ -167,8 +187,50 @@ def api_state() -> dict[str, Any]:
 
 @app.post("/api/folder")
 def api_folder(body: FolderBody) -> dict[str, Any]:
-    _set_folder(Path(body.folder))
-    return STATE.snapshot()
+    folder = _set_folder(Path(body.folder))
+    snapshot = STATE.snapshot()
+    if snapshot.get("pending") or not snapshot.get("frames"):
+        try:
+            return _begin_index(folder)
+        except HTTPException:
+            return snapshot
+    return snapshot
+
+
+@app.get("/api/fs")
+def api_fs(path: str | None = None) -> dict[str, Any]:
+    if path:
+        root = Path(path).expanduser().resolve()
+    else:
+        desktop = Path.home() / "Desktop"
+        root = desktop if desktop.is_dir() else Path.home()
+    if not root.is_dir():
+        raise HTTPException(400, f"Not a folder: {root}")
+    try:
+        children = sorted(root.iterdir(), key=lambda item: item.name.lower())
+    except PermissionError as exc:
+        raise HTTPException(403, "Can't open that folder.") from exc
+    entries: list[dict[str, str]] = []
+    for item in children:
+        if item.name.startswith("."):
+            continue
+        try:
+            if not item.is_dir():
+                continue
+            entries.append({"name": item.name, "path": str(item.resolve())})
+        except OSError:
+            continue
+    parent = str(root.parent) if root.parent != root else None
+    return {
+        "path": str(root),
+        "name": root.name or str(root),
+        "parent": parent,
+        "entries": entries,
+        "videos": len(list_videos(root, required=False)),
+        "home": str(Path.home()),
+        "desktop": str(Path.home() / "Desktop"),
+        "documents": str(Path.home() / "Documents"),
+    }
 
 
 @app.post("/api/browse")
@@ -176,13 +238,25 @@ def api_browse() -> dict[str, Any]:
     picked = _pick_folder(STATE.folder)
     if not picked:
         return STATE.snapshot()
-    _set_folder(Path(picked))
-    return STATE.snapshot()
+    folder = _set_folder(Path(picked))
+    snapshot = STATE.snapshot()
+    if snapshot.get("pending") or not snapshot.get("frames"):
+        try:
+            return _begin_index(folder)
+        except HTTPException:
+            return snapshot
+    return snapshot
 
 
 @app.post("/api/index")
 def api_index(body: IndexBody) -> dict[str, Any]:
     folder = _current_folder(body.folder)
+    return _begin_index(folder, body.interval, body.max_frames)
+
+
+def _begin_index(
+    folder: Path, interval: float = 1.0, max_frames: int | None = None
+) -> dict[str, Any]:
     if STATE.worker and STATE.worker.is_alive():
         raise HTTPException(409, "Indexing is already running.")
     STATE.stop.clear()
@@ -239,8 +313,8 @@ def api_index(body: IndexBody) -> dict[str, Any]:
             vlm = STATE.get_vlm()
             index_folder(
                 folder,
-                interval_sec=body.interval,
-                max_frames=body.max_frames,
+                interval_sec=interval,
+                max_frames=max_frames,
                 vlm=vlm,
                 on_progress=progress,
                 stop_event=STATE.stop,
@@ -276,7 +350,11 @@ async def api_search(body: SearchBody) -> dict[str, Any]:
         raise HTTPException(400, "The index is empty.")
     if STATE.job.get("status") in {"indexing", "loading"}:
         raise HTTPException(409, "Wait for indexing to finish.")
-    STATE.set_job(status="searching", message=f"Looking at frames for “{query}”")
+    STATE.set_job(
+        status="searching",
+        message=f"Looking for “{query}”",
+        thoughts=[],
+    )
     try:
         hits = await run_in_threadpool(
             _run_search,
@@ -307,6 +385,7 @@ def _run_search(index_path: Path, folder: Path, query: str, threshold: float, to
         match_threshold=threshold,
         top=top,
         folder=folder,
+        on_progress=lambda event: STATE.add_thought(str(event.get("message") or "")),
     )
 
 
@@ -343,6 +422,49 @@ app.mount("/media", StaticFiles(directory=STATIC), name="media")
 
 
 def _pick_folder(initial: Path | None) -> str:
+    if sys.platform == "darwin":
+        picked = _pick_folder_macos(initial)
+        if picked is not None:
+            return picked
+    return _pick_folder_tk(initial)
+
+
+def _pick_folder_macos(initial: Path | None) -> str | None:
+    start = ""
+    if initial is not None:
+        path = str(Path(initial).expanduser().resolve())
+        if Path(path).is_dir():
+            start = f"panel.directoryURL = $.NSURL.fileURLWithPath({json.dumps(path)});"
+    script = f"""
+ObjC.import("AppKit");
+const app = $.NSApplication.sharedApplication;
+app.setActivationPolicy($.NSApplicationActivationPolicyRegular);
+const panel = $.NSOpenPanel.openPanel;
+panel.canChooseFiles = false;
+panel.canChooseDirectories = true;
+panel.allowsMultipleSelection = false;
+panel.canCreateDirectories = false;
+panel.message = "Choose a folder of clips";
+panel.prompt = "Choose";
+panel.level = 3;
+panel.collectionBehavior = 1;
+{start}
+app.activateIgnoringOtherApps(true);
+const ok = panel.runModal();
+ok == $.NSModalResponseOK ? ObjC.unwrap(panel.URLs.objectAtIndex(0).path) : "";
+"""
+    result = subprocess.run(
+        ["osascript", "-l", "JavaScript", "-e", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def _pick_folder_tk(initial: Path | None) -> str:
     initial_arg = f"initialdir={str(initial)!r}" if initial else ""
     script = f"""
 import tkinter as tk

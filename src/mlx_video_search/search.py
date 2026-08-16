@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from mlx_video_search.grounding import (
+    MAX_VISUAL_LOOKS,
+    PRECISE_VISUAL_LOOKS,
     candidate_frames,
     expand_candidates,
     interpret_query,
@@ -48,7 +50,12 @@ def search_index(
     match_threshold: float = 0.5,
     top: int = 10,
     folder: Path | str | None = None,
+    on_progress: Any = None,
 ) -> list[dict[str, Any]]:
+    def think(message: str) -> None:
+        if on_progress is not None:
+            on_progress({"message": message})
+
     root = folder or index.get("folder")
     if not root:
         return []
@@ -61,7 +68,13 @@ def search_index(
     if not frames:
         return []
 
+    think(f"Reading {len(frames)} frames")
     spec = interpret_query(query, frames, vlm)
+    if _pixel_query(query, spec):
+        spec["precise"] = True
+    looks = str(spec.get("looks_like") or "").strip()
+    if looks and looks.lower() != query.lower():
+        think(f"Taking that as {_short(looks)}")
     aliases = _spec_aliases(spec, query)
     durations = {
         str(video.get("path")): float(video.get("duration_sec") or 0.0)
@@ -69,8 +82,19 @@ def search_index(
         if video.get("path")
     }
 
+    precise = bool(spec.get("precise"))
     seeds = candidate_frames(frames, spec, query, limit=8)
-    candidates = expand_candidates(frames, seeds, limit=14)
+    if seeds:
+        think(f"{len(seeds)} clip{'s' if len(seeds) != 1 else ''} look related")
+    else:
+        think("Nothing obvious in the captions")
+    candidates = expand_candidates(
+        frames,
+        seeds,
+        limit=32 if precise else 14,
+        per_video=6 if precise else 3,
+        every_video=precise,
+    )
     verified = visual_rerank(
         candidates,
         query,
@@ -79,13 +103,27 @@ def search_index(
         match_threshold,
         durations=durations,
         folder=root,
+        max_looks=PRECISE_VISUAL_LOOKS if precise else MAX_VISUAL_LOOKS,
+        on_progress=on_progress,
     )
     if verified:
         return _dedupe_hits(verified)[:top]
 
+    if precise:
+        think("Nothing in the frames we checked.")
+        return []
+
+    think("No visual match. Trying captions.")
     ranked = lexical_search(frames, query, aliases=aliases, top=top * 2)
     ranked.sort(key=lambda hit: float(hit.get("confidence") or 0.0), reverse=True)
     return _dedupe_hits(ranked)[:top]
+
+
+def _short(text: str, limit: int = 72) -> str:
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
 
 
 def lexical_search(
@@ -130,6 +168,7 @@ def _frame_blob(frame: dict[str, Any]) -> str:
         str(frame.get("filename") or ""),
         str(frame.get("moment") or ""),
         str(frame.get("change") or ""),
+        str(frame.get("gaze") or ""),
     ]
     for key in ("objects", "actions", "details", "phrases"):
         value = frame.get(key)
@@ -142,13 +181,35 @@ def _frame_blob(frame: dict[str, Any]) -> str:
 
 def _spec_aliases(spec: dict[str, Any], query: str) -> list[str]:
     aliases: list[str] = []
-    related = spec.get("related") or []
-    extra = related if isinstance(related, list) else [related]
-    for item in (spec.get("looks_like"), *(spec.get("aliases") or []), *extra):
+    for item in spec.get("aliases") or []:
         text = str(item or "").strip()
         if text and text not in aliases and text.lower() != query.lower():
             aliases.append(text)
     return aliases
+
+
+_PIXEL_MARKERS = (
+    "look at",
+    "looks at",
+    "looking at",
+    "looked at",
+    "look off",
+    "looking off",
+    "look away",
+    "looking away",
+    "glance",
+    "camera",
+    "the lens",
+    "at me",
+    "eye contact",
+)
+
+
+def _pixel_query(query: str, spec: dict[str, Any]) -> bool:
+    if spec.get("precise"):
+        return True
+    blob = f"{query} {spec.get('looks_like') or ''}".lower()
+    return any(marker in blob for marker in _PIXEL_MARKERS)
 
 
 def _tokens(text: str) -> set[str]:

@@ -7,7 +7,9 @@ from mlx_video_search.frames import extract_frame_pil, format_timestamp, path_in
 from mlx_video_search.vlm import FrameVLM, parse_json
 
 NEARBY_OFFSETS = (-0.33, -0.16, 0.16, 0.33)
+PRECISE_OFFSETS = (-1.0, -0.5, 0.5, 1.0)
 MAX_VISUAL_LOOKS = 18
+PRECISE_VISUAL_LOOKS = 22
 _STOP = {
     "a",
     "an",
@@ -33,12 +35,13 @@ These are clips from one person's camera roll:
 
 They asked: {query}
 
-They may use their own words for a moment. Rewrite the ask as what ONE frame
-must look like, using these clips as context. Copy their world, do not invent
-a different one.
+Rewrite the ask as what ONE frame must look like. Name the distinguishing
+pixels, not the whole activity. If they said a glance, a look, or "the
+moment", precise is true.
+not_this is the easy miss (looking at the wall when they asked for the camera).
+related is words from the clip text that might contain that instant.
 Return ONLY valid JSON:
 {{"looks_like":"what the pixels must show","not_this":"what would be a miss","precise":false,"related":["words taken from the clip descriptions that might hold this moment"],"aliases":["short related asks"]}}
-precise is true only if they named a brief instant, not a whole scene.
 related must come from the clip text above, not from outside knowledge.
 No markdown.
 """
@@ -72,7 +75,7 @@ def interpret_query(query: str, frames: list[dict[str, Any]], vlm: FrameVLM) -> 
             context=_escape(context),
             query=_escape(query),
         ),
-        max_tokens=280,
+        max_tokens=180,
     )
     parsed = parse_json(raw)
     spec = parsed if isinstance(parsed, dict) else {}
@@ -105,6 +108,7 @@ def expand_candidates(
     seeds: list[dict[str, Any]],
     limit: int = 14,
     per_video: int = 3,
+    every_video: bool = False,
 ) -> list[dict[str, Any]]:
     picked: list[dict[str, Any]] = []
     seen: set[tuple[Any, Any]] = set()
@@ -140,12 +144,16 @@ def expand_candidates(
             if len(picked) >= limit:
                 return picked[:limit]
 
-    if not seeds:
+    if every_video or not seeds:
         for group in by_file.values():
             if not group:
                 continue
-            add(group[len(group) // 2])
-            if len(picked) >= min(limit, max(4, len(by_file))):
+            spread = _spread(group, per_video) if every_video else [group[len(group) // 2]]
+            for frame in spread:
+                add(frame)
+                if len(picked) >= limit:
+                    return picked[:limit]
+            if not every_video and len(picked) >= min(limit, max(4, len(by_file))):
                 break
     return picked[:limit]
 
@@ -159,7 +167,12 @@ def visual_rerank(
     durations: dict[str, float] | None = None,
     max_looks: int = MAX_VISUAL_LOOKS,
     folder: Path | str | None = None,
+    on_progress: Any = None,
 ) -> list[dict[str, Any]]:
+    def think(message: str) -> None:
+        if on_progress is not None:
+            on_progress({"message": message})
+
     looks = str(spec.get("looks_like") or query)
     not_this = str(spec.get("not_this") or "")
     spec_text = f"{looks}. Do not match: {not_this}" if not_this else looks
@@ -170,7 +183,7 @@ def visual_rerank(
     def inspect(path: str, timestamp_sec: float) -> tuple[bool, float, bool, dict[str, Any]]:
         nonlocal looks_used
         looks_used += 1
-        image = extract_frame_pil(Path(path), timestamp_sec)
+        image = extract_frame_pil(Path(path), timestamp_sec, max_side=512)
         judged = vlm.describe(image, query=query, spec=spec_text)
         match = _as_bool(judged.get("match"))
         same_scene = _as_bool(judged.get("same_scene"))
@@ -206,6 +219,8 @@ def visual_rerank(
             continue
         if folder is not None and path_in_folder(str(path), folder) is None:
             continue
+        name = frame.get("filename") or Path(str(path)).name
+        think(f"Checking {name} · {format_timestamp(stamp)}")
         try:
             match, confidence, same_scene, judged = inspect(str(path), stamp)
         except Exception:
@@ -214,8 +229,9 @@ def visual_rerank(
         if match and confidence >= match_threshold:
             best = hit_from(frame, str(path), stamp, judged, confidence)
         elif looks_used < max_looks and (same_scene or (precise and confidence >= 0.2)):
+            think(f"Nearby frames in {name}")
             duration = float((durations or {}).get(str(path)) or 0.0)
-            for neighbor in _neighbor_times(stamp, duration):
+            for neighbor in _neighbor_times(stamp, duration, precise=precise):
                 if looks_used >= max_looks:
                     break
                 try:
@@ -228,6 +244,11 @@ def visual_rerank(
                     best = hit_from(frame, str(path), neighbor, n_judged, n_conf)
         if best:
             verified.append(best)
+            strong = [
+                hit for hit in verified if float(hit.get("confidence") or 0.0) >= 0.75
+            ]
+            if len(strong) >= 3:
+                break
     verified.sort(key=lambda hit: float(hit.get("confidence") or 0.0), reverse=True)
     return verified
 
@@ -236,20 +257,24 @@ def _candidate_score(frame: dict[str, Any], spec: dict[str, Any], query: str) ->
     blob_tokens = _tokens(_frame_text(frame))
     if not blob_tokens:
         return 0.0
-    score = 0.0
+
+    def frac(wanted: set[str]) -> float:
+        if not wanted:
+            return 0.0
+        return len(wanted & blob_tokens) / len(wanted)
+
     query_tokens = _tokens(query) - _STOP
-    if query_tokens:
-        score += 0.5 * len(query_tokens & blob_tokens) / len(query_tokens)
     looks_tokens = _tokens(str(spec.get("looks_like") or "")) - _STOP
-    if looks_tokens:
-        score += 0.8 * len(looks_tokens & blob_tokens) / len(looks_tokens)
     related = _tokens(" ".join(_string_list(spec.get("related")))) - _STOP
-    if related:
-        score += 1.2 * len(related & blob_tokens) / len(related)
     aliases = _tokens(" ".join(_string_list(spec.get("aliases")))) - _STOP
-    if aliases:
-        score += 0.4 * len(aliases & blob_tokens) / len(aliases)
-    return score
+    query_part = frac(query_tokens)
+    looks_part = frac(looks_tokens)
+    related_part = frac(related)
+    alias_part = frac(aliases)
+    core = query_part * 1.4 + looks_part * 1.1 + alias_part * 0.6
+    if core > 0:
+        return core + 0.15 * related_part
+    return 0.45 * related_part
 
 
 def _frame_text(frame: dict[str, Any]) -> str:
@@ -258,6 +283,7 @@ def _frame_text(frame: dict[str, Any]) -> str:
         str(frame.get("scene") or ""),
         str(frame.get("moment") or ""),
         str(frame.get("change") or ""),
+        str(frame.get("gaze") or ""),
         str(frame.get("filename") or ""),
     ]
     for key in ("objects", "actions", "details", "phrases"):
@@ -305,9 +331,9 @@ def _as_bool(value: Any) -> bool:
     return bool(value)
 
 
-def _neighbor_times(stamp: float, duration: float) -> list[float]:
+def _neighbor_times(stamp: float, duration: float, precise: bool = False) -> list[float]:
     times: list[float] = []
-    for offset in NEARBY_OFFSETS:
+    for offset in PRECISE_OFFSETS if precise else NEARBY_OFFSETS:
         candidate = round(max(0.0, stamp + offset), 3)
         if duration and candidate > duration:
             continue

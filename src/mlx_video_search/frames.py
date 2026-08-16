@@ -135,7 +135,7 @@ def iter_sampled_frames(
     path: Path,
     interval_sec: float = 1.0,
     max_frames: int | None = None,
-    max_side: int = 768,
+    max_side: int = 512,
 ):
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
@@ -199,7 +199,7 @@ def extract_frame_jpeg(
         cap.release()
 
 
-def extract_frame_pil(path: Path, timestamp_sec: float, max_side: int = 768) -> Image.Image:
+def extract_frame_pil(path: Path, timestamp_sec: float, max_side: int = 512) -> Image.Image:
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video: {path}")

@@ -27,7 +27,7 @@ def index_video(
     query: str | None = None,
     interval_sec: float = 1.0,
     max_frames: int | None = None,
-    max_side: int = 768,
+    max_side: int = 512,
     model_id: str = DEFAULT_MODEL,
     match_threshold: float = 0.5,
     vlm: FrameVLM | None = None,
@@ -55,7 +55,7 @@ def iter_index_progress(
     query: str | None = None,
     interval_sec: float = 1.0,
     max_frames: int | None = None,
-    max_side: int = 768,
+    max_side: int = 512,
     model_id: str = DEFAULT_MODEL,
     match_threshold: float = 0.5,
     vlm: FrameVLM | None = None,
@@ -70,6 +70,8 @@ def iter_index_progress(
     hits: list[dict[str, Any]] = []
     count = 0
     previous = None
+    prev_sig = None
+    prev_parsed: dict[str, Any] | None = None
 
     for sampled in iter_sampled_frames(
         video_path,
@@ -78,11 +80,18 @@ def iter_index_progress(
         max_side=max_side,
     ):
         count += 1
-        parsed = vlm.describe(
-            sampled.image,
-            query=query,
-            previous=None if query else previous,
-        )
+        sig = _frame_signature(sampled.image)
+        if prev_parsed is not None and _similar_signature(sig, prev_sig):
+            parsed = dict(prev_parsed)
+            parsed["change"] = None
+        else:
+            parsed = vlm.describe(
+                sampled.image,
+                query=query,
+                previous=None if query else previous,
+            )
+            prev_parsed = parsed
+            prev_sig = sig
         record = _frame_record(video_path, sampled, parsed, query)
         frames.append(record)
         if not query:
@@ -258,7 +267,7 @@ def index_folder(
     output: Path | None = None,
     interval_sec: float = 1.0,
     max_frames: int | None = None,
-    max_side: int = 768,
+    max_side: int = 512,
     model_id: str = DEFAULT_MODEL,
     vlm: FrameVLM | None = None,
     on_progress: Any = None,
@@ -420,7 +429,24 @@ def _frame_record(video_path: Path, sampled, parsed: dict[str, Any], query: str 
         record["phrases"] = _string_list(parsed.get("phrases"))
         record["moment"] = _optional_str(parsed.get("moment"))
         record["change"] = _optional_str(parsed.get("change"))
+        record["gaze"] = _optional_str(parsed.get("gaze"))
     return record
+
+
+def _frame_signature(image: Any) -> tuple[int, ...]:
+    small = image.convert("L").resize((12, 12))
+    pixels = list(small.getdata())
+    avg = int(sum(pixels) / len(pixels))
+    bits = tuple(1 if pixel > avg else 0 for pixel in pixels)
+    return (avg, *bits)
+
+
+def _similar_signature(left: tuple[int, ...] | None, right: tuple[int, ...] | None) -> bool:
+    if left is None or right is None or len(left) != len(right):
+        return False
+    if abs(left[0] - right[0]) > 18:
+        return False
+    return sum(a != b for a, b in zip(left[1:], right[1:])) <= 10
 
 
 def _optional_str(value: Any) -> str | None:

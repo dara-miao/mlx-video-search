@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-side",
         type=int,
-        default=768,
+        default=512,
         help="Resize frames so the long side is at most this many pixels",
     )
     parser.add_argument(

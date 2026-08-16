@@ -1,10 +1,19 @@
 from pathlib import Path
 import tempfile
 
+from PIL import Image
+
 from mlx_video_search.frames import format_timestamp, list_videos, path_in_folder
-from mlx_video_search.index import empty_index, load_index, merge_video_result, sanitize_index
+from mlx_video_search.index import (
+    empty_index,
+    load_index,
+    merge_video_result,
+    sanitize_index,
+    _frame_signature,
+    _similar_signature,
+)
 from mlx_video_search.grounding import candidate_frames, expand_candidates, library_context
-from mlx_video_search.search import lexical_search, _dedupe_hits
+from mlx_video_search.search import lexical_search, _dedupe_hits, _spec_aliases
 from mlx_video_search.vlm import parse_json, parse_json_object
 
 
@@ -256,6 +265,67 @@ def test_visual_spec_retrieves_from_captions():
     assert "kitchen.mov" in names
 
 
+def test_gaze_query_is_not_fooled_by_scene_words():
+    climbing = {
+        "file": "/tmp/wall.mov",
+        "filename": "wall.mov",
+        "timestamp": "00:00:03.000",
+        "timestamp_sec": 3.0,
+        "caption": "A woman is climbing on a colorful indoor rock climbing wall.",
+        "objects": ["woman", "wall"],
+        "actions": ["climbing"],
+        "scene": "gym",
+        "gaze": "away",
+    }
+    glance = {
+        "file": "/tmp/wall.mov",
+        "filename": "wall.mov",
+        "timestamp": "00:00:11.000",
+        "timestamp_sec": 11.0,
+        "caption": "She turns and looks at the camera.",
+        "objects": ["woman"],
+        "actions": ["looking at camera"],
+        "scene": "gym",
+        "gaze": "at camera",
+    }
+    assert lexical_search([climbing], "the moment i look at the camera") == []
+    hits = lexical_search([climbing, glance], "the moment i look at the camera")
+    assert hits
+    assert hits[0]["timestamp_sec"] == 11.0
+
+    aliases = _spec_aliases(
+        {
+            "looks_like": "a face turned toward the camera",
+            "related": ["climbing", "rock wall", "woman"],
+            "aliases": ["looking at the lens"],
+        },
+        "the moment i look at the camera",
+    )
+    joined = " ".join(aliases).lower()
+    assert "climbing" not in joined
+    assert "looking at the lens" in joined
+
+    ranked = candidate_frames(
+        [climbing, glance],
+        {
+            "looks_like": "a face turned toward the camera",
+            "aliases": ["look at the camera"],
+            "related": ["climbing", "rock wall", "woman"],
+        },
+        "the moment i look at the camera",
+    )
+    assert ranked
+    assert ranked[0]["timestamp_sec"] == 11.0
+
+
+def test_similar_frames_are_detected():
+    dark = Image.new("RGB", (64, 64), (18, 18, 18))
+    close = Image.new("RGB", (64, 64), (24, 24, 24))
+    bright = Image.new("RGB", (64, 64), (210, 210, 210))
+    assert _similar_signature(_frame_signature(dark), _frame_signature(close))
+    assert not _similar_signature(_frame_signature(dark), _frame_signature(bright))
+
+
 if __name__ == "__main__":
     test_parse_json_and_timestamps()
     test_lexical_and_dedupe()
@@ -263,4 +333,6 @@ if __name__ == "__main__":
     test_merge_keeps_filename()
     test_folder_containment()
     test_visual_spec_retrieves_from_captions()
+    test_gaze_query_is_not_fooled_by_scene_words()
+    test_similar_frames_are_detected()
     print("ok")

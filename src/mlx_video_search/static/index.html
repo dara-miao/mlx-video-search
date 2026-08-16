@@ -402,42 +402,16 @@
       font-size: 13px;
     }
     [data-theme="ocean"] .btn { font-weight: 700; }
-    .step {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 1.2em;
-      height: 1.2em;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0;
-      background: var(--step-bg);
-      color: var(--btn-text);
-      flex-shrink: 0;
-    }
-    .btn.ghost .step {
-      background: var(--ghost-hover);
-      color: var(--text);
-    }
     html[data-has-folder="true"] #browseBtn {
       background: transparent;
       color: var(--text);
       border-color: var(--line);
-    }
-    html[data-has-folder="true"] #browseBtn .step {
-      background: var(--ghost-hover);
-      color: var(--text);
     }
     html[data-needs-scan="true"] #indexBtn {
       background: var(--btn-bg);
       color: var(--btn-text);
       border-color: var(--btn-bg);
     }
-    html[data-needs-scan="true"] #indexBtn .step {
-      background: var(--step-bg);
-      color: var(--btn-text);
-    }
-    [data-theme="ocean"] .step { border-radius: 999px; }
     .toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -448,9 +422,9 @@
     .status {
       color: var(--mute);
       font-size: 13px;
-      min-height: 1.4em;
       margin-top: 16px;
     }
+    .status:empty { display: none; }
     .progress {
       display: none;
       align-items: center;
@@ -499,10 +473,10 @@
     .dot::after { right: 7px; }
     .results-head {
       display: flex;
-      align-items: baseline;
+      align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin: 36px 0 10px;
+      margin: 14px 0 10px;
     }
     .results-head[hidden], .idle[hidden] { display: none; }
     .results-head h2 {
@@ -513,10 +487,8 @@
     }
     .results-head h2 em {
       font-style: italic;
-      font-family: var(--display);
-      font-optical-sizing: auto;
       color: var(--text);
-      font-weight: 400;
+      font-weight: 500;
     }
     [data-theme="ocean"] .results-head h2 em {
       font-style: normal;
@@ -530,6 +502,51 @@
       font-size: 13px;
     }
     .clear:hover { color: var(--text); }
+    .think {
+      margin: 0 0 18px;
+      color: var(--mute);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .think[hidden] { display: none; }
+    .think summary {
+      cursor: pointer;
+      list-style: none;
+      color: var(--text);
+      user-select: none;
+    }
+    .think summary::-webkit-details-marker { display: none; }
+    .think-summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .think-chevron {
+      width: 0.38em;
+      height: 0.38em;
+      border-right: 1.5px solid currentColor;
+      border-bottom: 1.5px solid currentColor;
+      transform: rotate(-45deg);
+      opacity: 0.55;
+      flex-shrink: 0;
+    }
+    .think[open] .think-chevron { transform: rotate(45deg); }
+    .think-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .think[open] .think-label { color: var(--mute); }
+    .think-log {
+      margin: 8px 0 0;
+      padding: 0 0 0 18px;
+      display: none;
+      gap: 5px;
+    }
+    .think[open] .think-log { display: grid; }
+    .think-log li { color: var(--mute); }
+    .think-log li:last-child { color: var(--text); }
     .results {
       display: grid;
       gap: 12px;
@@ -654,6 +671,87 @@
       .hit-body { padding: 12px 14px 14px; }
       .hit img, .thumb { max-height: 200px; min-height: 160px; }
     }
+    .picker {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      place-items: center;
+      padding: 24px;
+      background: color-mix(in srgb, var(--bg) 78%, transparent);
+    }
+    .picker.is-on { display: grid; }
+    .picker-card {
+      width: min(460px, 100%);
+      max-height: min(72vh, 560px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+    [data-theme="ocean"] .picker-card {
+      background: var(--glass);
+      backdrop-filter: blur(22px) saturate(1.5);
+      -webkit-backdrop-filter: blur(22px) saturate(1.5);
+    }
+    .picker-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .picker-path {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+    .picker-shortcuts {
+      display: flex;
+      gap: 8px;
+      padding: 10px 14px 0;
+    }
+    .picker-list {
+      flex: 1;
+      min-height: 200px;
+      overflow: auto;
+      margin: 8px 0;
+      padding: 0;
+      list-style: none;
+    }
+    .picker-list button {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 14px;
+      text-align: left;
+      font-size: 14px;
+    }
+    .picker-list button:hover,
+    .picker-list button:focus-visible {
+      background: var(--ghost-hover);
+    }
+    .picker-empty {
+      padding: 18px 14px;
+      color: var(--mute);
+      font-size: 13px;
+    }
+    .picker-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--line);
+    }
+    .picker-count { color: var(--mute); font-size: 13px; }
   </style>
 </head>
 <body>
@@ -694,8 +792,8 @@
         <button class="btn" id="searchBtn" type="submit" disabled>Search</button>
       </form>
       <div class="toolbar" id="toolbar">
-        <button class="btn tiny" id="browseBtn" type="button"><span class="step">1</span>Choose folder</button>
-        <button class="btn ghost tiny" id="indexBtn" type="button"><span class="step">2</span><span id="indexLabel">Index library</span></button>
+        <button class="btn tiny" id="browseBtn" type="button">Choose folder</button>
+        <button class="btn ghost tiny" id="indexBtn" type="button" hidden><span id="indexLabel">Index library</span></button>
       </div>
       <div class="progress" id="progress">
         <button class="dot" id="pauseBtn" type="button" aria-label="Pause indexing" title="Pause"></button>
@@ -703,7 +801,7 @@
       </div>
       <div class="status" id="status" aria-live="polite"></div>
       <div class="idle" id="idle">
-        <div class="empty" id="empty">Choose a folder of clips, then index it.</div>
+        <div class="empty" id="empty">Choose a folder of clips.</div>
       </div>
       <script>
         (function () {
@@ -723,7 +821,10 @@
           var browse = document.getElementById("browseBtn");
           if (browse) browse.className = ui.hasFolder ? "btn ghost tiny" : "btn tiny";
           var indexBtn = document.getElementById("indexBtn");
-          if (indexBtn) indexBtn.className = ui.needsScan ? "btn tiny" : "btn ghost tiny";
+          if (indexBtn) {
+            indexBtn.className = ui.needsScan ? "btn tiny" : "btn ghost tiny";
+            indexBtn.hidden = !ui.needsScan;
+          }
           var indexLabel = document.getElementById("indexLabel");
           if (indexLabel && ui.indexLabel) indexLabel.textContent = ui.indexLabel;
           var searchBtn = document.getElementById("searchBtn");
@@ -737,11 +838,39 @@
       <h2 id="resultsTitle"></h2>
       <button class="clear" id="clearResults" type="button">Clear</button>
     </div>
+    <details class="think" id="think" hidden>
+      <summary>
+        <span class="think-summary">
+          <span class="think-chevron" aria-hidden="true"></span>
+          <span class="think-label" id="thinkLabel">Looking…</span>
+        </span>
+      </summary>
+      <ol class="think-log" id="thinkLog"></ol>
+    </details>
     <div class="results" id="results"></div>
+  </div>
+  <div class="picker" id="picker" hidden>
+    <div class="picker-card" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
+      <div class="picker-head">
+        <button class="btn ghost tiny" id="pickerUp" type="button">Up</button>
+        <b class="picker-path" id="pickerTitle"></b>
+        <button class="clear" id="pickerClose" type="button">Cancel</button>
+      </div>
+      <div class="picker-shortcuts">
+        <button class="btn ghost tiny" type="button" data-jump="home">Home</button>
+        <button class="btn ghost tiny" type="button" data-jump="desktop">Desktop</button>
+        <button class="btn ghost tiny" type="button" data-jump="documents">Documents</button>
+      </div>
+      <ul class="picker-list" id="pickerList"></ul>
+      <div class="picker-foot">
+        <span class="picker-count" id="pickerCount"></span>
+        <button class="btn tiny" id="pickerUse" type="button">Use this folder</button>
+      </div>
+    </div>
   </div>
   <script>
     const $ = (id) => document.getElementById(id);
-    const state = { busy: false, showingResults: false, lastJob: "", lastQuery: "" };
+    const state = { busy: false, showingResults: false, lastJob: "", lastQuery: "", folder: "", picker: null, pickerGuard: 0 };
     const EXAMPLES = [
       "when she looks off camera",
       "the red jacket",
@@ -934,13 +1063,14 @@
     }
 
     function renderState(data) {
+      state.folder = data.folder || "";
       const name = data.folder ? data.folder.split("/").filter(Boolean).pop() : "No folder selected";
       $("folderChip").hidden = false;
       $("folderChip").innerHTML = data.folder
         ? `<b>${escapeHtml(name)}</b> · ${data.videos_indexed}/${data.videos_on_disk} clips · ${data.frames} frames`
         : "No folder selected";
       if (!state.showingResults) {
-        $("status").textContent = data.job?.message || "";
+        $("status").textContent = statusLine(data.job);
       }
       const indexing = data.job?.status === "indexing" || data.job?.status === "loading";
       const searching = data.job?.status === "searching";
@@ -948,10 +1078,11 @@
       state.busy = indexing || searching;
       $("searchBtn").disabled = indexing || searching || !data.frames;
       $("searchBtn").textContent = searching ? "Looking…" : "Search";
+      renderThoughts(data);
       $("browseBtn").hidden = false;
       $("browseBtn").disabled = indexing;
       $("browseBtn").className = data.folder ? "btn ghost tiny" : "btn tiny";
-      $("indexBtn").hidden = false;
+      $("indexBtn").hidden = indexing || !needsScan;
       $("indexBtn").disabled = indexing || !data.folder;
       $("indexBtn").className = needsScan && !indexing ? "btn tiny" : "btn ghost tiny";
       $("indexLabel").textContent = data.pending
@@ -981,12 +1112,22 @@
       }
     }
 
+    function statusLine(job) {
+      if (!job) return "";
+      if (job.status === "idle") {
+        const text = job.message || "";
+        if (/paus/i.test(text)) return text;
+        return "";
+      }
+      return job.message || "";
+    }
+
     function persistChrome(data) {
       const name = data.folder ? data.folder.split("/").filter(Boolean).pop() : "";
       const needsScan = Boolean(data.folder) && (Boolean(data.pending) || !data.frames);
-      let empty = "Choose a folder of clips, then index it.";
+      let empty = "Choose a folder of clips.";
       if (data.folder && !data.frames) {
-        empty = "Index this folder, then search.";
+        empty = "Indexing this folder…";
       } else if (data.pending) {
         empty = `${data.pending} clip${data.pending === 1 ? "" : "s"} still need indexing. Search works on what’s already in.`;
       } else if (data.folder) {
@@ -1010,6 +1151,19 @@
       root.toggleAttribute("data-has-frames", ui.hasFrames);
     }
 
+    function renderThoughts(data) {
+      const searching = data.job?.status === "searching";
+      const thoughts = data.job?.thoughts || [];
+      if (!searching && !(state.showingResults && thoughts.length)) {
+        $("think").hidden = true;
+        return;
+      }
+      $("think").hidden = false;
+      const lines = thoughts.length ? thoughts : ["Looking…"];
+      $("thinkLabel").textContent = searching ? lines[lines.length - 1] : "Looked";
+      $("thinkLog").innerHTML = lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+    }
+
     function hideIdle() {
       $("idle").hidden = true;
     }
@@ -1025,11 +1179,11 @@
         return;
       }
       if (!data.folder) {
-        showIdle("Choose a folder of clips, then index it.");
+        showIdle("Choose a folder of clips.");
       } else if (data.job?.status === "indexing" || data.job?.status === "loading") {
         showIdle(data.job.message || "Indexing…");
       } else if (!data.frames) {
-        showIdle("Index this folder, then search.");
+        showIdle("Indexing this folder…");
       } else if (data.pending) {
         showIdle(`${data.pending} clip${data.pending === 1 ? "" : "s"} still need indexing. Search works on what’s already in.`);
       } else {
@@ -1040,10 +1194,15 @@
     function showSearching(query) {
       state.showingResults = true;
       state.lastQuery = query;
+      state.busy = true;
       hideIdle();
       $("resultsHead").hidden = false;
       $("resultsTitle").innerHTML = `Looking for <em>${escapeHtml(query)}</em>`;
-      $("results").innerHTML = `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
+      $("results").innerHTML = "";
+      $("think").hidden = false;
+      $("think").open = false;
+      $("thinkLabel").textContent = "Looking…";
+      $("thinkLog").innerHTML = "<li>Looking…</li>";
     }
 
     function renderHits(query, hits) {
@@ -1087,6 +1246,7 @@
       state.lastQuery = "";
       $("results").innerHTML = "";
       $("resultsHead").hidden = true;
+      $("think").hidden = true;
       refresh();
     }
 
@@ -1100,14 +1260,71 @@
       renderState(await api("/api/state"));
     }
 
+    function parentPath(path) {
+      if (!path) return "";
+      const trimmed = path.replace(/\/+$/, "");
+      const index = trimmed.lastIndexOf("/");
+      return index <= 0 ? "" : trimmed.slice(0, index);
+    }
+
+    function openPicker() {
+      state.pickerGuard = Date.now();
+      $("picker").hidden = false;
+      $("picker").classList.add("is-on");
+    }
+
+    function closePicker() {
+      $("picker").classList.remove("is-on");
+      $("picker").hidden = true;
+      $("browseBtn").disabled = false;
+    }
+
     async function chooseFolder() {
+      state.showingResults = false;
+      $("results").innerHTML = "";
+      $("resultsHead").hidden = true;
+      $("think").hidden = true;
+      $("status").textContent = "";
+      openPicker();
       try {
-        state.showingResults = false;
-        $("results").innerHTML = "";
-        $("resultsHead").hidden = true;
-        renderState(await api("/api/browse", { method: "POST", body: "{}" }));
+        await loadPicker(parentPath(state.folder));
       } catch (err) {
         $("status").textContent = err.message;
+        closePicker();
+      }
+    }
+
+    async function loadPicker(path) {
+      const query = path ? `?path=${encodeURIComponent(path)}` : "";
+      const data = await api(`/api/fs${query}`);
+      state.picker = data;
+      $("pickerTitle").textContent = data.path.replace(data.home, "~");
+      $("pickerUp").disabled = !data.parent;
+      $("pickerCount").textContent = data.videos
+        ? `${data.videos} clip${data.videos === 1 ? "" : "s"} in here`
+        : "No clips in here";
+      if (!data.entries.length) {
+        $("pickerList").innerHTML = `<li class="picker-empty">No folders in here.</li>`;
+        return;
+      }
+      $("pickerList").innerHTML = data.entries.map((entry) => (
+        `<li><button type="button" data-open-path="${escapeHtml(entry.path)}">${escapeHtml(entry.name)}</button></li>`
+      )).join("");
+    }
+
+    async function usePickedFolder() {
+      const path = state.picker && state.picker.path;
+      if (!path) return;
+      closePicker();
+      $("browseBtn").disabled = true;
+      try {
+        renderState(await api("/api/folder", {
+          method: "POST",
+          body: JSON.stringify({ folder: path }),
+        }));
+      } catch (err) {
+        $("status").textContent = err.message;
+        $("browseBtn").disabled = false;
       }
     }
 
@@ -1124,6 +1341,26 @@
 
     $("folderChip").onclick = chooseFolder;
     $("browseBtn").onclick = chooseFolder;
+    $("picker").onclick = (event) => {
+      if (event.target !== $("picker")) return;
+      if (Date.now() - state.pickerGuard < 500) return;
+      closePicker();
+    };
+    $("pickerClose").onclick = closePicker;
+    $("pickerUse").onclick = usePickedFolder;
+    $("pickerUp").onclick = () => {
+      if (state.picker && state.picker.parent) loadPicker(state.picker.parent);
+    };
+    $("pickerList").onclick = (event) => {
+      const btn = event.target.closest("[data-open-path]");
+      if (btn) loadPicker(btn.dataset.openPath);
+    };
+    document.querySelector(".picker-shortcuts").onclick = (event) => {
+      const btn = event.target.closest("[data-jump]");
+      if (!btn || !state.picker) return;
+      const dest = state.picker[btn.dataset.jump];
+      if (dest) loadPicker(dest);
+    };
     $("clearResults").onclick = clearResults;
     $("indexBtn").onclick = async () => {
       try {
@@ -1141,7 +1378,7 @@
       if (!query) return;
       $("searchBtn").disabled = true;
       $("searchBtn").textContent = "Looking…";
-      $("status").textContent = "Looking at frames…";
+      $("status").textContent = "";
       showSearching(query);
       try {
         const data = await api("/api/search", {
@@ -1155,6 +1392,7 @@
         await refresh();
       } catch (err) {
         $("status").textContent = err.message;
+        $("think").hidden = true;
         showIdle(err.message);
         $("results").innerHTML = "";
       } finally {
@@ -1191,8 +1429,15 @@
         event.preventDefault();
         $("query").focus();
       }
-      if (event.key === "Escape" && state.showingResults && document.activeElement !== $("query")) {
-        clearResults();
+      if (event.key === "Escape") {
+        if (!$("picker").hidden) {
+          event.preventDefault();
+          closePicker();
+          return;
+        }
+        if (state.showingResults && document.activeElement !== $("query")) {
+          clearResults();
+        }
       }
     });
 

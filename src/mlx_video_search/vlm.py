@@ -13,8 +13,9 @@ INDEX_PROMPT = """\
 You are indexing a single video frame from someone's camera roll.
 Describe only what is on screen. A random clip, a glance away, or the last
 thing they filmed is still a valid frame.
+If a person is visible, say where their face points relative to this camera.
 Return ONLY valid JSON:
-{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, camera, notable visuals"],"moment":"the memorable thing in this frame, or null"}
+{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null"}
 moment is ordinary language (a splash, a look away, contact) or null if nothing stands out.
 No markdown. No commentary.
 """
@@ -22,16 +23,20 @@ No markdown. No commentary.
 INDEX_FOLLOW_PROMPT = """\
 Previous sampled frame: {previous}
 Describe this frame. Note what changed.
+If a person is visible, say where their face points relative to this camera.
 Return ONLY valid JSON:
-{{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, camera, notable visuals"],"moment":"the memorable thing in this frame, or null","change":"what unfolded since the last sample, or null"}}
+{{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null","change":"what unfolded since the last sample, or null"}}
 No markdown. No commentary.
 """
 
 SEARCH_PROMPT = """\
 The user wants this instant: {query}
 Visual spec: {spec}
-Look at the pixels. The stored caption may be generic or unrelated to how they
-asked. Decide from what you see, not from a label.
+Look at the pixels. The stored caption may be generic or wrong for this ask.
+Face direction and gaze matter. If they asked to look at the camera, match
+only if a face is turned toward the lens. A back of the head, a profile
+looking at a wall, or looking down is not a match. If they asked to look
+away, the face must not be toward the camera.
 Return ONLY valid JSON:
 {{"match":false,"confidence":0.0,"same_scene":false,"caption":"one sentence","reason":"why this is or is not that instant"}}
 same_scene is true if this is the right clip but maybe the wrong instant.
@@ -104,6 +109,7 @@ class FrameVLM:
         query: str | None = None,
         spec: str = "",
         previous: str | None = None,
+        max_tokens: int | None = None,
     ) -> dict[str, Any]:
         self.load()
         from mlx_vlm import generate
@@ -114,10 +120,13 @@ class FrameVLM:
                 query=_escape_braces(query),
                 spec=_escape_braces(spec or query),
             )
+            tokens = 96 if max_tokens is None else max_tokens
         elif previous:
             prompt = INDEX_FOLLOW_PROMPT.format(previous=_escape_braces(previous))
+            tokens = 180 if max_tokens is None else max_tokens
         else:
             prompt = INDEX_PROMPT
+            tokens = 180 if max_tokens is None else max_tokens
         formatted = apply_chat_template(
             self._processor,
             self._config,
@@ -130,7 +139,7 @@ class FrameVLM:
                 self._processor,
                 formatted,
                 image=[image],
-                max_tokens=360,
+                max_tokens=tokens,
                 temperature=0.0,
                 verbose=False,
             )
@@ -152,7 +161,7 @@ class FrameVLM:
                 self._model,
                 self._processor,
                 formatted,
-                max_tokens=max_tokens,
+                max_tokens=min(max_tokens, 220),
                 temperature=0.0,
                 verbose=False,
             )
