@@ -48,10 +48,12 @@ _PIXEL_MARKERS = (
 def query_spec(query: str) -> dict[str, Any]:
     text = query.strip()
     blob = text.lower()
+    precise = any(marker in blob for marker in _PIXEL_MARKERS)
     return {
         "looks_like": text,
         "not_this": "",
-        "precise": any(marker in blob for marker in _PIXEL_MARKERS),
+        "precise": precise,
+        "broad": (not precise) and len(text.split()) <= 2,
         "related": [],
         "aliases": [],
     }

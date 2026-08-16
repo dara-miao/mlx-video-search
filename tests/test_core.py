@@ -306,10 +306,21 @@ def test_query_is_not_rewritten_from_the_library():
     assert jump["looks_like"] == "jump"
     assert jump["related"] == []
     assert jump["precise"] is False
+    assert jump["broad"] is True
+
+    sport = query_spec("sport")
+    assert sport["looks_like"] == "sport"
+    assert sport["broad"] is True
+    assert sport["precise"] is False
 
     camera = query_spec("Camera.")
     assert camera["looks_like"] == "Camera."
     assert camera["precise"] is True
+    assert camera["broad"] is False
+
+    moment = query_spec("the moment we hit the water")
+    assert moment["broad"] is False
+    assert moment["looks_like"] == "the moment we hit the water"
 
     dock = {
         "file": "/tmp/dock.mov",

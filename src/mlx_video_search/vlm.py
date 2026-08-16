@@ -30,8 +30,10 @@ No markdown. No commentary.
 """
 
 SEARCH_PROMPT = """\
-The user wants this instant: {query}
-Look at the pixels. The stored caption may be generic or wrong for this ask.
+The user asked for: {query}
+Look at the pixels. Match if that is on screen, or a clear example of it.
+A short category (sport, water, night) matches any frame that is clearly that.
+Do not require their word to appear, and do not swap in a different scene.
 Face direction and gaze matter. If they asked to look at the camera, match
 only if a face is turned toward the lens. A back of the head, a profile
 looking at a wall, or looking down is not a match. If they asked to look

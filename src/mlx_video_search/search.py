@@ -78,17 +78,20 @@ def search_index(
     }
 
     precise = bool(spec.get("precise"))
+    broad = bool(spec.get("broad"))
     seeds = candidate_frames(frames, spec, query, limit=8)
     if seeds:
         think(f"{len(seeds)} clip{'s' if len(seeds) != 1 else ''} look related")
     else:
         think("Nothing obvious in the captions")
+    video_count = len({str(frame.get("file") or "") for frame in frames})
+    look_around = precise or not seeds or (broad and video_count <= 24)
     candidates = expand_candidates(
         frames,
         seeds,
-        limit=32 if precise else 14,
-        per_video=6 if precise else 3,
-        every_video=precise or not seeds,
+        limit=32 if look_around else 14,
+        per_video=6 if look_around else 3,
+        every_video=look_around,
     )
     verified = visual_rerank(
         candidates,
@@ -98,7 +101,7 @@ def search_index(
         match_threshold,
         durations=durations,
         folder=root,
-        max_looks=PRECISE_VISUAL_LOOKS if precise else MAX_VISUAL_LOOKS,
+        max_looks=PRECISE_VISUAL_LOOKS if look_around else MAX_VISUAL_LOOKS,
         on_progress=on_progress,
     )
     if verified:
