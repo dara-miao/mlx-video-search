@@ -108,10 +108,14 @@ def search_index(
         think("Nothing in the frames we checked.")
         return []
 
-    think("No visual match. Trying captions.")
     ranked = lexical_search(frames, query, aliases=aliases, top=top * 2)
     ranked.sort(key=lambda hit: float(hit.get("confidence") or 0.0), reverse=True)
-    return _dedupe_hits(ranked)[:top]
+    hits = _dedupe_hits(ranked)[:top]
+    if hits:
+        think(f"{len(hits)} caption match{'es' if len(hits) != 1 else ''}")
+        return hits
+    think("Nothing matched.")
+    return []
 
 
 def lexical_search(
