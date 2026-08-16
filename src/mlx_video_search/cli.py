@@ -24,7 +24,7 @@ from mlx_video_search.vlm import FrameVLM
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Search local videos in natural language. "
+            "Search local videos in natural language on Apple Silicon (MLX). "
             "Run with no arguments to open the app."
         )
     )
