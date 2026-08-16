@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -91,6 +90,8 @@ class AppState:
         with self.lock:
             folder = self.folder
             job = dict(self.job)
+            if isinstance(job.get("hits"), list):
+                job["hits"] = list(job["hits"])
         payload: dict[str, Any] = {
             "folder": str(folder) if folder else None,
             "job": job,
@@ -337,7 +338,7 @@ def api_cancel() -> dict[str, Any]:
 
 
 @app.post("/api/search")
-async def api_search(body: SearchBody) -> dict[str, Any]:
+def api_search(body: SearchBody) -> dict[str, Any]:
     query = body.query.strip()
     if not query:
         raise HTTPException(400, "Type something to search for.")
@@ -348,33 +349,57 @@ async def api_search(body: SearchBody) -> dict[str, Any]:
     preview = sanitize_index(load_index(index_path), folder)
     if not preview.get("frames"):
         raise HTTPException(400, "The index is empty.")
-    if STATE.job.get("status") in {"indexing", "loading"}:
-        raise HTTPException(409, "Wait for indexing to finish.")
+    if STATE.job.get("status") in {"indexing", "loading", "searching"}:
+        raise HTTPException(409, "Wait for that to finish.")
+    if STATE.worker and STATE.worker.is_alive():
+        raise HTTPException(409, "Wait for that to finish.")
+    STATE.stop.clear()
     STATE.set_job(
         status="searching",
         message=f"Looking for “{query}”",
         thoughts=[],
+        hits=[],
+        query=query,
     )
-    try:
-        hits = await run_in_threadpool(
-            _run_search,
-            index_path,
-            folder,
-            query,
-            body.match_threshold,
-            body.top,
-        )
-        STATE.set_job(
-            status="idle",
-            message=f"{len(hits)} moment{'s' if len(hits) != 1 else ''} for “{query}”",
-        )
-        return {"query": query, "hits": hits}
-    except Exception as exc:
-        STATE.set_job(status="error", message=str(exc))
-        raise HTTPException(500, str(exc)) from exc
+
+    def progress(event: dict[str, Any]) -> None:
+        if event.get("message"):
+            STATE.add_thought(str(event.get("message") or ""))
+        if "hits" in event:
+            STATE.set_job(hits=list(event.get("hits") or []))
+
+    def run() -> None:
+        try:
+            hits = _run_search(
+                index_path,
+                folder,
+                query,
+                body.match_threshold,
+                body.top,
+                progress,
+            )
+            STATE.set_job(
+                status="idle",
+                hits=hits,
+                query=query,
+                message=f"{len(hits)} moment{'s' if len(hits) != 1 else ''} for “{query}”",
+            )
+        except Exception as exc:
+            STATE.set_job(status="error", message=str(exc), hits=[], query=query)
+
+    STATE.worker = threading.Thread(target=run, daemon=True)
+    STATE.worker.start()
+    return STATE.snapshot()
 
 
-def _run_search(index_path: Path, folder: Path, query: str, threshold: float, top: int) -> list[dict[str, Any]]:
+def _run_search(
+    index_path: Path,
+    folder: Path,
+    query: str,
+    threshold: float,
+    top: int,
+    on_progress: Any = None,
+) -> list[dict[str, Any]]:
     index = sanitize_index(load_index(index_path), folder)
     if not index.get("frames"):
         raise RuntimeError("The index is empty.")
@@ -385,7 +410,7 @@ def _run_search(index_path: Path, folder: Path, query: str, threshold: float, to
         match_threshold=threshold,
         top=top,
         folder=folder,
-        on_progress=lambda event: STATE.add_thought(str(event.get("message") or "")),
+        on_progress=on_progress,
     )
 
 

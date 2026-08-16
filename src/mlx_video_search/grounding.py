@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -49,11 +50,13 @@ def query_spec(query: str) -> dict[str, Any]:
     text = query.strip()
     blob = text.lower()
     precise = any(marker in blob for marker in _PIXEL_MARKERS)
+    words = text.split()
     return {
         "looks_like": text,
         "not_this": "",
         "precise": precise,
-        "broad": (not precise) and len(text.split()) <= 2,
+        "broad": (not precise) and len(words) <= 2,
+        "specific": (not precise) and len(words) >= 3,
         "related": [],
         "aliases": [],
     }
@@ -141,26 +144,17 @@ def visual_rerank(
     folder: Path | str | None = None,
     on_progress: Any = None,
 ) -> list[dict[str, Any]]:
-    def think(message: str) -> None:
-        if on_progress is not None:
-            on_progress({"message": message})
+    def think(message: str, hits: list[dict[str, Any]] | None = None) -> None:
+        if on_progress is None:
+            return
+        event: dict[str, Any] = {"message": message}
+        if hits is not None:
+            event["hits"] = list(hits)
+        on_progress(event)
 
     verified: list[dict[str, Any]] = []
     looks_used = 0
     precise = bool(spec.get("precise"))
-
-    def inspect(path: str, timestamp_sec: float) -> tuple[bool, float, bool, dict[str, Any]]:
-        nonlocal looks_used
-        looks_used += 1
-        image = extract_frame_pil(Path(path), timestamp_sec, max_side=512)
-        judged = vlm.describe(image, query=query)
-        match = _as_bool(judged.get("match"))
-        same_scene = _as_bool(judged.get("same_scene"))
-        try:
-            confidence = float(judged.get("confidence") or 0.0)
-        except (TypeError, ValueError):
-            confidence = 0.0
-        return match, confidence, same_scene, judged
 
     def hit_from(
         frame: dict[str, Any],
@@ -179,46 +173,91 @@ def visual_rerank(
             "reason": judged.get("reason"),
         }
 
-    for frame in candidates:
-        if looks_used >= max_looks:
-            break
-        path = frame.get("file")
-        stamp = float(frame.get("timestamp_sec") or 0.0)
-        if not path:
-            continue
-        if folder is not None and path_in_folder(str(path), folder) is None:
-            continue
-        name = frame.get("filename") or Path(str(path)).name
-        think(f"Checking {name} · {format_timestamp(stamp)}")
-        try:
-            match, confidence, same_scene, judged = inspect(str(path), stamp)
-        except Exception:
-            continue
-        best: dict[str, Any] | None = None
-        if match and confidence >= match_threshold:
-            best = hit_from(frame, str(path), stamp, judged, confidence)
-        elif looks_used < max_looks and (same_scene or (precise and confidence >= 0.2)):
-            think(f"Nearby frames in {name}")
-            duration = float((durations or {}).get(str(path)) or 0.0)
-            for neighbor in _neighbor_times(stamp, duration, precise=precise):
-                if looks_used >= max_looks:
-                    break
-                try:
-                    n_match, n_conf, _, n_judged = inspect(str(path), neighbor)
-                except Exception:
-                    continue
-                if not n_match or n_conf < match_threshold:
-                    continue
-                if best is None or n_conf > float(best.get("confidence") or 0.0):
-                    best = hit_from(frame, str(path), neighbor, n_judged, n_conf)
-        if best:
-            verified.append(best)
-            strong = [
-                hit for hit in verified if float(hit.get("confidence") or 0.0) >= 0.75
-            ]
-            if len(strong) >= 3:
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        prefetch: tuple[tuple[str, float], Any] | None = None
+
+        def image_at(path: str, timestamp_sec: float):
+            nonlocal prefetch
+            key = (path, round(timestamp_sec, 3))
+            if prefetch is not None and prefetch[0] == key:
+                image = prefetch[1].result()
+                prefetch = None
+                return image
+            return extract_frame_pil(Path(path), timestamp_sec, max_side=512)
+
+        def prefetch_at(path: str, timestamp_sec: float) -> None:
+            nonlocal prefetch
+            key = (path, round(timestamp_sec, 3))
+            if prefetch is not None and prefetch[0] == key:
+                return
+            prefetch = (
+                key,
+                pool.submit(extract_frame_pil, Path(path), timestamp_sec, 512),
+            )
+
+        def inspect(path: str, timestamp_sec: float) -> tuple[bool, float, bool, dict[str, Any]]:
+            nonlocal looks_used
+            looks_used += 1
+            image = image_at(path, timestamp_sec)
+            judged = vlm.describe(image, query=query)
+            match = _as_bool(judged.get("match"))
+            same_scene = _as_bool(judged.get("same_scene"))
+            try:
+                confidence = float(judged.get("confidence") or 0.0)
+            except (TypeError, ValueError):
+                confidence = 0.0
+            return match, confidence, same_scene, judged
+
+        for index, frame in enumerate(candidates):
+            if looks_used >= max_looks:
                 break
+            path = frame.get("file")
+            stamp = float(frame.get("timestamp_sec") or 0.0)
+            if not path:
+                continue
+            if folder is not None and path_in_folder(str(path), folder) is None:
+                continue
+            name = frame.get("filename") or Path(str(path)).name
+            nxt = None
+            for ahead in candidates[index + 1 :]:
+                if ahead.get("file"):
+                    nxt = ahead
+                    break
+            if nxt is not None:
+                prefetch_at(str(nxt["file"]), float(nxt.get("timestamp_sec") or 0.0))
+            think(f"Checking {name} · {format_timestamp(stamp)}")
+            try:
+                match, confidence, same_scene, judged = inspect(str(path), stamp)
+            except Exception:
+                continue
+            best: dict[str, Any] | None = None
+            if match and confidence >= match_threshold:
+                best = hit_from(frame, str(path), stamp, judged, confidence)
+            elif looks_used < max_looks and (same_scene or (precise and confidence >= 0.2)):
+                think(f"Nearby frames in {name}")
+                duration = float((durations or {}).get(str(path)) or 0.0)
+                for neighbor in _neighbor_times(stamp, duration, precise=precise):
+                    if looks_used >= max_looks:
+                        break
+                    try:
+                        n_match, n_conf, _, n_judged = inspect(str(path), neighbor)
+                    except Exception:
+                        continue
+                    if not n_match or n_conf < match_threshold:
+                        continue
+                    if best is None or n_conf > float(best.get("confidence") or 0.0):
+                        best = hit_from(frame, str(path), neighbor, n_judged, n_conf)
+            if best:
+                verified.append(best)
+                think(f"Found {name}", hits=verified)
+                strong = [
+                    hit for hit in verified if float(hit.get("confidence") or 0.0) >= 0.75
+                ]
+                if len(strong) >= 3:
+                    break
     verified.sort(key=lambda hit: float(hit.get("confidence") or 0.0), reverse=True)
+    if verified:
+        think(f"{len(verified)} visual match{'es' if len(verified) != 1 else ''}", hits=verified)
     return verified
 
 

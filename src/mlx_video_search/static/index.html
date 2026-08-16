@@ -870,7 +870,7 @@
   </div>
   <script>
     const $ = (id) => document.getElementById(id);
-    const state = { busy: false, showingResults: false, lastJob: "", lastQuery: "", folder: "", picker: null, pickerGuard: 0 };
+    const state = { busy: false, showingResults: false, lastJob: "", lastQuery: "", hitKey: "", folder: "", picker: null, pickerGuard: 0 };
     const EXAMPLES = [
       "when she looks off camera",
       "the red jacket",
@@ -1110,6 +1110,13 @@
       if (!state.showingResults) {
         updateEmpty(data);
       }
+      if (state.showingResults) {
+        const query = data.job?.query || state.lastQuery;
+        const hits = data.job?.hits || [];
+        if (data.job?.status === "searching" && hits.length) {
+          renderHits(query, hits, { live: true });
+        }
+      }
     }
 
     function statusLine(job) {
@@ -1199,22 +1206,28 @@
       $("resultsHead").hidden = false;
       $("resultsTitle").innerHTML = `Looking for <em>${escapeHtml(query)}</em>`;
       $("results").innerHTML = "";
+      state.hitKey = "";
       $("think").hidden = false;
       $("think").open = false;
       $("thinkLabel").textContent = "Looking…";
       $("thinkLog").innerHTML = "<li>Looking…</li>";
     }
 
-    function renderHits(query, hits) {
+    function renderHits(query, hits, opts = {}) {
+      const live = Boolean(opts.live);
       state.showingResults = true;
       state.lastQuery = query;
       $("resultsHead").hidden = false;
       if (!hits.length) {
+        if (live) return;
         $("resultsTitle").innerHTML = `No moments for <em>${escapeHtml(query)}</em>`;
         $("results").innerHTML = "";
         hideIdle();
         return;
       }
+      const key = hits.map((hit) => `${hit.file}:${hit.timestamp_sec}`).join("|");
+      if (live && state.hitKey === key) return;
+      state.hitKey = key;
       hideIdle();
       $("resultsTitle").innerHTML = `${hits.length} moment${hits.length === 1 ? "" : "s"} for <em>${escapeHtml(query)}</em>`;
       $("results").innerHTML = hits.map((hit) => {
@@ -1381,14 +1394,10 @@
       $("status").textContent = "";
       showSearching(query);
       try {
-        const data = await api("/api/search", {
+        await api("/api/search", {
           method: "POST",
           body: JSON.stringify({ query }),
         });
-        renderHits(query, data.hits || []);
-        $("status").textContent = data.hits?.length
-          ? `${data.hits.length} moment${data.hits.length === 1 ? "" : "s"}`
-          : "";
         await refresh();
       } catch (err) {
         $("status").textContent = err.message;
@@ -1396,7 +1405,6 @@
         showIdle(err.message);
         $("results").innerHTML = "";
         $("searchBtn").disabled = false;
-      } finally {
         $("searchBtn").textContent = "Search";
         state.busy = false;
       }
@@ -1448,6 +1456,7 @@
         try {
           const data = await api("/api/state");
           const finishedIndex = state.lastJob === "indexing" && data.job?.status === "idle";
+          const finishedSearch = state.lastJob === "searching" && data.job?.status !== "searching";
           state.lastJob = data.job?.status || "";
           if (finishedIndex) {
             state.showingResults = false;
@@ -1455,6 +1464,9 @@
             $("resultsHead").hidden = true;
           }
           renderState(data);
+          if (finishedSearch && state.showingResults) {
+            renderHits(data.job?.query || state.lastQuery, data.job?.hits || []);
+          }
         } catch (_) {
           /* keep last UI if the server is briefly restarting */
         }

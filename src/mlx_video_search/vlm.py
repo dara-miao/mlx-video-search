@@ -14,9 +14,12 @@ You are indexing a single video frame from someone's camera roll.
 Describe only what is on screen. A random clip, a glance away, or the last
 thing they filmed is still a valid frame.
 If a person is visible, say where their face points relative to this camera.
+If this is a sport, name the sport and the phase in that sport's own words
+(golf: address, takeaway, backswing, downswing, impact, follow-through).
+Put those terms in actions and phrases even if caption stays ordinary.
 Return ONLY valid JSON:
-{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null"}
-moment is ordinary language (a splash, a look away, contact) or null if nothing stands out.
+{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null","phrases":["searchable terms for this frame"]}
+moment is ordinary language (a splash, a look away, impact) or null if nothing stands out.
 No markdown. No commentary.
 """
 
@@ -24,8 +27,10 @@ INDEX_FOLLOW_PROMPT = """\
 Previous sampled frame: {previous}
 Describe this frame. Note what changed.
 If a person is visible, say where their face points relative to this camera.
+If this is a sport, name the sport and the phase in that sport's own words.
+Put those terms in actions and phrases.
 Return ONLY valid JSON:
-{{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null","change":"what unfolded since the last sample, or null"}}
+{{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null","change":"what unfolded since the last sample, or null","phrases":["searchable terms for this frame"]}}
 No markdown. No commentary.
 """
 
@@ -33,6 +38,8 @@ SEARCH_PROMPT = """\
 The user asked for: {query}
 Look at the pixels. Match if that is on screen, or a clear example of it.
 A short category (sport, water, night) matches any frame that is clearly that.
+If they named a phase (impact, follow-through, serve), match that phase,
+not merely the same sport.
 Do not require their word to appear, and do not swap in a different scene.
 Face direction and gaze matter. If they asked to look at the camera, match
 only if a face is turned toward the lens. A back of the head, a profile

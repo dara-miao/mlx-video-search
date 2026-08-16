@@ -71,6 +71,27 @@ def test_lexical_and_dedupe():
     ]
     assert len(_dedupe_hits(crowded)) == 2
 
+    setup = {
+        "file": "/tmp/golf.mov",
+        "filename": "golf.mov",
+        "timestamp_sec": 3.0,
+        "caption": "A golfer prepares to swing on a sunny day",
+        "actions": ["setup"],
+    }
+    impact = {
+        "file": "/tmp/golf.mov",
+        "filename": "golf.mov",
+        "timestamp_sec": 5.0,
+        "caption": "Golf swing at impact, club meeting the ball",
+        "actions": ["impact"],
+        "moment": "impact",
+        "phrases": ["impact", "downswing"],
+    }
+    assert lexical_search([setup], "golf swing at impact") == []
+    phase = lexical_search([setup, impact], "golf swing at impact")
+    assert phase
+    assert phase[0]["timestamp_sec"] == 5.0
+
 
 def test_corrupt_index_recovers(tmp_path: Path | None = None):
     path = Path("/tmp/mlx-video-search-corrupt.json")
@@ -320,7 +341,12 @@ def test_query_is_not_rewritten_from_the_library():
 
     moment = query_spec("the moment we hit the water")
     assert moment["broad"] is False
+    assert moment["specific"] is True
     assert moment["looks_like"] == "the moment we hit the water"
+
+    impact = query_spec("golf swing at impact")
+    assert impact["specific"] is True
+    assert impact["broad"] is False
 
     dock = {
         "file": "/tmp/dock.mov",

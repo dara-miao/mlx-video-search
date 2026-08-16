@@ -79,19 +79,21 @@ def search_index(
 
     precise = bool(spec.get("precise"))
     broad = bool(spec.get("broad"))
+    specific = bool(spec.get("specific"))
     seeds = candidate_frames(frames, spec, query, limit=8)
     if seeds:
         think(f"{len(seeds)} clip{'s' if len(seeds) != 1 else ''} look related")
     else:
         think("Nothing obvious in the captions")
     video_count = len({str(frame.get("file") or "") for frame in frames})
-    look_around = precise or not seeds or (broad and video_count <= 24)
+    scan_library = precise or not seeds or (broad and video_count <= 24)
+    deeper = precise or specific or scan_library
     candidates = expand_candidates(
         frames,
         seeds,
-        limit=32 if look_around else 14,
-        per_video=6 if look_around else 3,
-        every_video=look_around,
+        limit=32 if deeper else 14,
+        per_video=6 if deeper else 3,
+        every_video=scan_library,
     )
     verified = visual_rerank(
         candidates,
@@ -101,13 +103,13 @@ def search_index(
         match_threshold,
         durations=durations,
         folder=root,
-        max_looks=PRECISE_VISUAL_LOOKS if look_around else MAX_VISUAL_LOOKS,
+        max_looks=PRECISE_VISUAL_LOOKS if deeper else MAX_VISUAL_LOOKS,
         on_progress=on_progress,
     )
     if verified:
         return _dedupe_hits(verified)[:top]
 
-    if precise:
+    if precise or specific:
         think("Nothing in the frames we checked.")
         return []
 
@@ -127,17 +129,21 @@ def lexical_search(
     top: int = 10,
     aliases: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    wanted = _tokens(" ".join([query, *(aliases or [])])) - _STOP
-    if not wanted:
-        wanted = _tokens(query)
-    if not wanted:
+    needed = _core_tokens(query)
+    extras = [_core_tokens(alias) for alias in (aliases or []) if str(alias).strip()]
+    if not needed and not any(extras):
+        needed = _tokens(query)
+    if not needed:
         return []
     scored: list[tuple[float, dict[str, Any]]] = []
     for frame in frames:
-        overlap = _tokens(_frame_blob(frame)) & wanted
-        if not overlap:
+        blob = _tokens(_frame_blob(frame))
+        if _covers(needed, blob):
+            score = 1.0
+        elif any(extra and _covers(extra, blob) for extra in extras):
+            score = 0.6
+        else:
             continue
-        score = len(overlap) / len(wanted)
         scored.append((score, frame))
     scored.sort(key=lambda item: item[0], reverse=True)
     hits = []
@@ -185,6 +191,27 @@ def _spec_aliases(spec: dict[str, Any], query: str) -> list[str]:
 
 def _tokens(text: str) -> set[str]:
     return set(_WORD.findall(text.lower()))
+
+
+def _core_tokens(text: str) -> set[str]:
+    tokens = _tokens(text) - _STOP
+    core = {word for word in tokens if len(word) >= 4}
+    return core or tokens
+
+
+def _covers(wanted: set[str], blob: set[str]) -> bool:
+    if not wanted:
+        return False
+    return all(
+        word in blob
+        or any(
+            len(word) >= 4
+            and len(other) >= 4
+            and (other.startswith(word) or word.startswith(other))
+            for other in blob
+        )
+        for word in wanted
+    )
 
 
 def _dedupe_hits(hits: list[dict[str, Any]], window_sec: float = 1.5) -> list[dict[str, Any]]:
