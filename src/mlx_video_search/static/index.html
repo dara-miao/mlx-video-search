@@ -1181,7 +1181,7 @@
       if (!data.folder) {
         showIdle("Choose a folder of clips.");
       } else if (data.job?.status === "indexing" || data.job?.status === "loading") {
-        showIdle(data.job.message || "Indexing…");
+        hideIdle();
       } else if (!data.frames) {
         showIdle("Indexing this folder…");
       } else if (data.pending) {

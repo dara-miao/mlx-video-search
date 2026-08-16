@@ -31,7 +31,6 @@ No markdown. No commentary.
 
 SEARCH_PROMPT = """\
 The user wants this instant: {query}
-Visual spec: {spec}
 Look at the pixels. The stored caption may be generic or wrong for this ask.
 Face direction and gaze matter. If they asked to look at the camera, match
 only if a face is turned toward the lens. A back of the head, a profile
@@ -116,10 +115,7 @@ class FrameVLM:
         from mlx_vlm.prompt_utils import apply_chat_template
 
         if query:
-            prompt = SEARCH_PROMPT.format(
-                query=_escape_braces(query),
-                spec=_escape_braces(spec or query),
-            )
+            prompt = SEARCH_PROMPT.format(query=_escape_braces(query))
             tokens = 96 if max_tokens is None else max_tokens
         elif previous:
             prompt = INDEX_FOLLOW_PROMPT.format(previous=_escape_braces(previous))

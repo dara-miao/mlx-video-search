@@ -9,7 +9,7 @@ from mlx_video_search.grounding import (
     PRECISE_VISUAL_LOOKS,
     candidate_frames,
     expand_candidates,
-    interpret_query,
+    query_spec,
     visual_rerank,
 )
 from mlx_video_search.index import default_index_path, sanitize_index
@@ -69,12 +69,7 @@ def search_index(
         return []
 
     think(f"Reading {len(frames)} frames")
-    spec = interpret_query(query, frames, vlm)
-    if _pixel_query(query, spec):
-        spec["precise"] = True
-    looks = str(spec.get("looks_like") or "").strip()
-    if looks and looks.lower() != query.lower():
-        think(f"Taking that as {_short(looks)}")
+    spec = query_spec(query)
     aliases = _spec_aliases(spec, query)
     durations = {
         str(video.get("path")): float(video.get("duration_sec") or 0.0)
@@ -93,7 +88,7 @@ def search_index(
         seeds,
         limit=32 if precise else 14,
         per_video=6 if precise else 3,
-        every_video=precise,
+        every_video=precise or not seeds,
     )
     verified = visual_rerank(
         candidates,
@@ -117,13 +112,6 @@ def search_index(
     ranked = lexical_search(frames, query, aliases=aliases, top=top * 2)
     ranked.sort(key=lambda hit: float(hit.get("confidence") or 0.0), reverse=True)
     return _dedupe_hits(ranked)[:top]
-
-
-def _short(text: str, limit: int = 72) -> str:
-    text = str(text or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "…"
 
 
 def lexical_search(
@@ -186,30 +174,6 @@ def _spec_aliases(spec: dict[str, Any], query: str) -> list[str]:
         if text and text not in aliases and text.lower() != query.lower():
             aliases.append(text)
     return aliases
-
-
-_PIXEL_MARKERS = (
-    "look at",
-    "looks at",
-    "looking at",
-    "looked at",
-    "look off",
-    "looking off",
-    "look away",
-    "looking away",
-    "glance",
-    "camera",
-    "the lens",
-    "at me",
-    "eye contact",
-)
-
-
-def _pixel_query(query: str, spec: dict[str, Any]) -> bool:
-    if spec.get("precise"):
-        return True
-    blob = f"{query} {spec.get('looks_like') or ''}".lower()
-    return any(marker in blob for marker in _PIXEL_MARKERS)
 
 
 def _tokens(text: str) -> set[str]:

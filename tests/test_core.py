@@ -12,7 +12,7 @@ from mlx_video_search.index import (
     _frame_signature,
     _similar_signature,
 )
-from mlx_video_search.grounding import candidate_frames, expand_candidates, library_context
+from mlx_video_search.grounding import candidate_frames, expand_candidates, query_spec
 from mlx_video_search.search import lexical_search, _dedupe_hits, _spec_aliases
 from mlx_video_search.vlm import parse_json, parse_json_object
 
@@ -198,11 +198,7 @@ def test_visual_spec_retrieves_from_captions():
     ]
     splash = candidate_frames(
         frames,
-        {
-            "looks_like": "a boat hitting the water with a splash",
-            "aliases": ["hit the water", "splash"],
-            "related": ["boat", "water"],
-        },
+        query_spec("the moment we hit the water"),
         "the moment we hit the water",
     )
     assert splash
@@ -210,32 +206,15 @@ def test_visual_spec_retrieves_from_captions():
 
     glance = candidate_frames(
         frames,
-        {
-            "looks_like": "a person looking away from the camera",
-            "aliases": ["look off camera"],
-            "related": ["cooking", "camera"],
-        },
+        query_spec("looking off camera"),
         "looking off camera",
     )
     assert glance
     assert glance[0]["filename"] == "kitchen.mov"
 
-    # Jargon that never appears in the caption still maps via related library words.
-    drop = candidate_frames(
-        frames,
-        {
-            "looks_like": "the hull leaving the surface",
-            "aliases": ["the drop"],
-            "related": ["boat", "splash"],
-        },
-        "the drop",
-    )
-    assert drop
-    assert drop[0]["filename"] == "boat.mov"
-
-    context = library_context(frames)
-    assert "boat.mov" in context
-    assert "kitchen.mov" in context
+    # Captions retrieve the user's words. They do not rename the ask to a clip.
+    drop = candidate_frames(frames, query_spec("the drop"), "the drop")
+    assert drop == []
 
     swing = [
         {
@@ -307,11 +286,7 @@ def test_gaze_query_is_not_fooled_by_scene_words():
 
     ranked = candidate_frames(
         [climbing, glance],
-        {
-            "looks_like": "a face turned toward the camera",
-            "aliases": ["look at the camera"],
-            "related": ["climbing", "rock wall", "woman"],
-        },
+        query_spec("the moment i look at the camera"),
         "the moment i look at the camera",
     )
     assert ranked
@@ -326,6 +301,45 @@ def test_similar_frames_are_detected():
     assert not _similar_signature(_frame_signature(dark), _frame_signature(bright))
 
 
+def test_query_is_not_rewritten_from_the_library():
+    jump = query_spec("jump")
+    assert jump["looks_like"] == "jump"
+    assert jump["related"] == []
+    assert jump["precise"] is False
+
+    camera = query_spec("Camera.")
+    assert camera["looks_like"] == "Camera."
+    assert camera["precise"] is True
+
+    dock = {
+        "file": "/tmp/dock.mov",
+        "filename": "dock.mov",
+        "timestamp_sec": 2.0,
+        "caption": "Two women standing at the edge of a wooden dock, bodies poised for jump",
+        "actions": ["jumping"],
+    }
+    yard = {
+        "file": "/tmp/yard.mov",
+        "filename": "yard.mov",
+        "timestamp_sec": 1.0,
+        "caption": "A person jumping off the ground in a backyard",
+        "actions": ["jumping"],
+    }
+    cook = {
+        "file": "/tmp/cook.mov",
+        "filename": "cook.mov",
+        "timestamp_sec": 0.0,
+        "caption": "Someone cooking in a kitchen",
+        "actions": ["cooking"],
+    }
+    jumping = candidate_frames([dock, yard, cook], jump, "jump")
+    names = {item["filename"] for item in jumping}
+    assert names == {"dock.mov", "yard.mov"}
+
+    camera_seeds = candidate_frames([dock, yard, cook], camera, "Camera.")
+    assert camera_seeds == []
+
+
 if __name__ == "__main__":
     test_parse_json_and_timestamps()
     test_lexical_and_dedupe()
@@ -335,4 +349,5 @@ if __name__ == "__main__":
     test_visual_spec_retrieves_from_captions()
     test_gaze_query_is_not_fooled_by_scene_words()
     test_similar_frames_are_detected()
+    test_query_is_not_rewritten_from_the_library()
     print("ok")

@@ -52,7 +52,7 @@ mlx-video-search --help
 
 1. Sample frames from each video (default: one per second).
 2. Run the VLM on each frame and store a caption plus structured tags.
-3. On search, interpret the query, retrieve candidate frames, then confirm against the pixels.
+3. On search, retrieve candidate frames from those captions using the query as written, then confirm against the pixels.
 
 ## License
 

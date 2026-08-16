@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from mlx_video_search.frames import extract_frame_pil, format_timestamp, path_in_folder
-from mlx_video_search.vlm import FrameVLM, parse_json
+from mlx_video_search.vlm import FrameVLM
 
 NEARBY_OFFSETS = (-0.33, -0.16, 0.16, 0.33)
 PRECISE_OFFSETS = (-1.0, -0.5, 0.5, 1.0)
@@ -28,63 +28,33 @@ _STOP = {
     "we",
     "with",
 }
-
-INTERPRET_PROMPT = """\
-These are clips from one person's camera roll:
-{context}
-
-They asked: {query}
-
-Rewrite the ask as what ONE frame must look like. Name the distinguishing
-pixels, not the whole activity. If they said a glance, a look, or "the
-moment", precise is true.
-not_this is the easy miss (looking at the wall when they asked for the camera).
-related is words from the clip text that might contain that instant.
-Return ONLY valid JSON:
-{{"looks_like":"what the pixels must show","not_this":"what would be a miss","precise":false,"related":["words taken from the clip descriptions that might hold this moment"],"aliases":["short related asks"]}}
-related must come from the clip text above, not from outside knowledge.
-No markdown.
-"""
+_PIXEL_MARKERS = (
+    "look at",
+    "looks at",
+    "looking at",
+    "looked at",
+    "look off",
+    "looking off",
+    "look away",
+    "looking away",
+    "glance",
+    "camera",
+    "the lens",
+    "at me",
+    "eye contact",
+)
 
 
-def library_context(frames: list[dict[str, Any]], limit: int = 16) -> str:
-    by_file: dict[str, list[dict[str, Any]]] = {}
-    for frame in frames:
-        path = str(frame.get("file") or "")
-        by_file.setdefault(path, []).append(frame)
-    lines: list[str] = []
-    for path, group in by_file.items():
-        name = group[0].get("filename") or Path(path).name
-        caption = next((str(item.get("caption") or "").strip() for item in group if item.get("caption")), "")
-        moment = next((str(item.get("moment") or "").strip() for item in group if item.get("moment")), "")
-        if not caption and not moment:
-            continue
-        line = f"{name}: {caption}" if caption else f"{name}:"
-        if moment and moment.lower() not in caption.lower():
-            line += f" / {moment}"
-        lines.append(line)
-        if len(lines) >= limit:
-            break
-    return "\n".join(lines) if lines else "unknown amateur clips"
-
-
-def interpret_query(query: str, frames: list[dict[str, Any]], vlm: FrameVLM) -> dict[str, Any]:
-    context = library_context(frames)
-    raw = vlm.complete(
-        INTERPRET_PROMPT.format(
-            context=_escape(context),
-            query=_escape(query),
-        ),
-        max_tokens=180,
-    )
-    parsed = parse_json(raw)
-    spec = parsed if isinstance(parsed, dict) else {}
-    spec["looks_like"] = str(spec.get("looks_like") or "").strip() or query
-    spec["not_this"] = str(spec.get("not_this") or "").strip()
-    spec["precise"] = _as_bool(spec.get("precise"))
-    spec["related"] = _string_list(spec.get("related"))
-    spec["aliases"] = _string_list(spec.get("aliases"))
-    return spec
+def query_spec(query: str) -> dict[str, Any]:
+    text = query.strip()
+    blob = text.lower()
+    return {
+        "looks_like": text,
+        "not_this": "",
+        "precise": any(marker in blob for marker in _PIXEL_MARKERS),
+        "related": [],
+        "aliases": [],
+    }
 
 
 def candidate_frames(
@@ -173,9 +143,6 @@ def visual_rerank(
         if on_progress is not None:
             on_progress({"message": message})
 
-    looks = str(spec.get("looks_like") or query)
-    not_this = str(spec.get("not_this") or "")
-    spec_text = f"{looks}. Do not match: {not_this}" if not_this else looks
     verified: list[dict[str, Any]] = []
     looks_used = 0
     precise = bool(spec.get("precise"))
@@ -184,7 +151,7 @@ def visual_rerank(
         nonlocal looks_used
         looks_used += 1
         image = extract_frame_pil(Path(path), timestamp_sec, max_side=512)
-        judged = vlm.describe(image, query=query, spec=spec_text)
+        judged = vlm.describe(image, query=query)
         match = _as_bool(judged.get("match"))
         same_scene = _as_bool(judged.get("same_scene"))
         try:
@@ -257,24 +224,17 @@ def _candidate_score(frame: dict[str, Any], spec: dict[str, Any], query: str) ->
     blob_tokens = _tokens(_frame_text(frame))
     if not blob_tokens:
         return 0.0
-
-    def frac(wanted: set[str]) -> float:
-        if not wanted:
-            return 0.0
-        return len(wanted & blob_tokens) / len(wanted)
-
     query_tokens = _tokens(query) - _STOP
-    looks_tokens = _tokens(str(spec.get("looks_like") or "")) - _STOP
-    related = _tokens(" ".join(_string_list(spec.get("related")))) - _STOP
+    looks = str(spec.get("looks_like") or "").strip()
+    looks_tokens = set()
+    if looks and looks.lower() != query.strip().lower():
+        looks_tokens = _tokens(looks) - _STOP
     aliases = _tokens(" ".join(_string_list(spec.get("aliases")))) - _STOP
-    query_part = frac(query_tokens)
-    looks_part = frac(looks_tokens)
-    related_part = frac(related)
-    alias_part = frac(aliases)
-    core = query_part * 1.4 + looks_part * 1.1 + alias_part * 0.6
-    if core > 0:
-        return core + 0.15 * related_part
-    return 0.45 * related_part
+    return (
+        _aligned(query_tokens, blob_tokens) * 1.4
+        + _aligned(looks_tokens, blob_tokens) * 1.1
+        + _aligned(aliases, blob_tokens) * 0.6
+    )
 
 
 def _frame_text(frame: dict[str, Any]) -> str:
@@ -315,6 +275,21 @@ def _tokens(text: str) -> set[str]:
     ).split() if len(word) > 2}
 
 
+def _aligned(wanted: set[str], blob: set[str]) -> float:
+    if not wanted:
+        return 0.0
+    hits = 0
+    for word in wanted:
+        if word in blob or any(
+            len(word) >= 4
+            and len(other) >= 4
+            and (other.startswith(word) or word.startswith(other))
+            for other in blob
+        ):
+            hits += 1
+    return hits / len(wanted)
+
+
 def _string_list(value: Any) -> list[str]:
     if isinstance(value, str) and value.strip():
         return [value.strip()]
@@ -342,7 +317,3 @@ def _neighbor_times(stamp: float, duration: float, precise: bool = False) -> lis
         if candidate not in times:
             times.append(candidate)
     return times
-
-
-def _escape(text: str) -> str:
-    return text.replace("{", "{{").replace("}", "}}")
