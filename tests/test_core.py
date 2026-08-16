@@ -13,6 +13,7 @@ from mlx_video_search.index import (
     _similar_signature,
 )
 from mlx_video_search.grounding import candidate_frames, expand_candidates, query_spec
+from mlx_video_search.location import parse_iso6709
 from mlx_video_search.search import lexical_search, _dedupe_hits, _spec_aliases
 from mlx_video_search.vlm import parse_json, parse_json_object
 
@@ -348,6 +349,11 @@ def test_query_is_not_rewritten_from_the_library():
     assert impact["specific"] is True
     assert impact["broad"] is False
 
+    backswing = query_spec("backswing golf")
+    assert backswing["specific"] is True
+    assert backswing["broad"] is False
+    assert backswing["precise"] is True
+
     dock = {
         "file": "/tmp/dock.mov",
         "filename": "dock.mov",
@@ -377,6 +383,36 @@ def test_query_is_not_rewritten_from_the_library():
     assert camera_seeds == []
 
 
+def test_location_query_uses_clip_place():
+    assert parse_iso6709("+33.5138-117.6591+066.830/") == (33.5138, -117.6591)
+    course = {
+        "file": "/tmp/golf.mov",
+        "filename": "golf.mov",
+        "timestamp_sec": 4.0,
+        "caption": "A golfer prepares to swing",
+        "scene": "golf course",
+        "location": "Marbella Country Club San Juan Capistrano California",
+    }
+    kitchen = {
+        "file": "/tmp/cook.mov",
+        "filename": "cook.mov",
+        "timestamp_sec": 0.0,
+        "caption": "Someone cooking in a kitchen",
+        "scene": "kitchen",
+        "location": "Los Angeles California",
+    }
+    placed = candidate_frames(
+        [course, kitchen],
+        query_spec("San Juan Capistrano"),
+        "San Juan Capistrano",
+    )
+    assert placed
+    assert placed[0]["filename"] == "golf.mov"
+    hits = lexical_search([course, kitchen], "Marbella")
+    assert hits
+    assert hits[0]["filename"] == "golf.mov"
+
+
 if __name__ == "__main__":
     test_parse_json_and_timestamps()
     test_lexical_and_dedupe()
@@ -387,4 +423,5 @@ if __name__ == "__main__":
     test_gaze_query_is_not_fooled_by_scene_words()
     test_similar_frames_are_detected()
     test_query_is_not_rewritten_from_the_library()
+    test_location_query_uses_clip_place()
     print("ok")

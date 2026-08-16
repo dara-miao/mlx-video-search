@@ -17,6 +17,7 @@ from mlx_video_search.frames import (
     resolve_video,
     video_fingerprint,
 )
+from mlx_video_search.location import probe_location
 from mlx_video_search.vlm import FrameVLM
 
 INDEX_VERSION = 1
@@ -100,16 +101,24 @@ def iter_index_progress(
             hits.append(_hit_record(record))
         yield count, None
 
+    loc = probe_location(video_path)
+    video = {
+        "path": str(video_path),
+        "filename": video_path.name,
+        "duration_sec": round(info.duration_sec, 3),
+        "fps": round(info.fps, 3),
+        "frame_count": info.frame_count,
+        "width": info.width,
+        "height": info.height,
+    }
+    if loc:
+        video["location"] = loc
+        place = loc.get("text") or loc.get("label")
+        if place:
+            for frame in frames:
+                frame["location"] = place
     yield count, {
-        "video": {
-            "path": str(video_path),
-            "filename": video_path.name,
-            "duration_sec": round(info.duration_sec, 3),
-            "fps": round(info.fps, 3),
-            "frame_count": info.frame_count,
-            "width": info.width,
-            "height": info.height,
-        },
+        "video": video,
         "sample": {
             "interval_sec": interval_sec,
             "max_frames": max_frames,

@@ -29,6 +29,18 @@ _STOP = {
     "we",
     "with",
 }
+_PHASE_MARKERS = (
+    "backswing",
+    "downswing",
+    "takeaway",
+    "follow-through",
+    "follow through",
+    "followthrough",
+    "impact",
+    "address",
+    "finish",
+    "top of the",
+)
 _PIXEL_MARKERS = (
     "look at",
     "looks at",
@@ -50,13 +62,14 @@ def query_spec(query: str) -> dict[str, Any]:
     text = query.strip()
     blob = text.lower()
     precise = any(marker in blob for marker in _PIXEL_MARKERS)
+    phase = any(marker in blob for marker in _PHASE_MARKERS)
     words = text.split()
     return {
         "looks_like": text,
         "not_this": "",
-        "precise": precise,
-        "broad": (not precise) and len(words) <= 2,
-        "specific": (not precise) and len(words) >= 3,
+        "precise": precise or phase,
+        "broad": (not precise) and (not phase) and len(words) <= 2,
+        "specific": (not precise) and (len(words) >= 3 or phase),
         "related": [],
         "aliases": [],
     }
@@ -169,6 +182,7 @@ def visual_rerank(
             "timestamp": format_timestamp(timestamp_sec),
             "timestamp_sec": round(timestamp_sec, 3),
             "caption": judged.get("caption") or frame.get("caption"),
+            "location": frame.get("location") or "",
             "confidence": confidence,
             "reason": judged.get("reason"),
         }
@@ -285,6 +299,7 @@ def _frame_text(frame: dict[str, Any]) -> str:
         str(frame.get("moment") or ""),
         str(frame.get("change") or ""),
         str(frame.get("gaze") or ""),
+        str(frame.get("location") or ""),
         str(frame.get("filename") or ""),
     ]
     for key in ("objects", "actions", "details", "phrases"):

@@ -12,7 +12,8 @@ from mlx_video_search.grounding import (
     query_spec,
     visual_rerank,
 )
-from mlx_video_search.index import default_index_path, sanitize_index
+from mlx_video_search.index import default_index_path, sanitize_index, save_index
+from mlx_video_search.location import attach_locations
 from mlx_video_search.vlm import FrameVLM
 
 _WORD = re.compile(r"[a-z0-9']+")
@@ -60,6 +61,12 @@ def search_index(
     if not root:
         return []
     index = sanitize_index(index, root)
+    think("Reading places")
+    if attach_locations(index):
+        try:
+            save_index(default_index_path(Path(str(root))), index)
+        except OSError:
+            pass
     frames = [
         frame
         for frame in (index.get("frames") or [])
@@ -109,7 +116,7 @@ def search_index(
     if verified:
         return _dedupe_hits(verified)[:top]
 
-    if precise or specific:
+    if precise:
         think("Nothing in the frames we checked.")
         return []
 
@@ -155,6 +162,7 @@ def lexical_search(
                 "timestamp": frame.get("timestamp"),
                 "timestamp_sec": frame.get("timestamp_sec"),
                 "caption": frame.get("caption"),
+                "location": frame.get("location") or "",
                 "confidence": round(min(1.0, 0.45 + score * 0.55), 3),
                 "reason": "Matched related wording in the index.",
             }
@@ -170,6 +178,7 @@ def _frame_blob(frame: dict[str, Any]) -> str:
         str(frame.get("moment") or ""),
         str(frame.get("change") or ""),
         str(frame.get("gaze") or ""),
+        str(frame.get("location") or ""),
     ]
     for key in ("objects", "actions", "details", "phrases"):
         value = frame.get(key)

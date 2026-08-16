@@ -16,6 +16,10 @@ thing they filmed is still a valid frame.
 If a person is visible, say where their face points relative to this camera.
 If this is a sport, name the sport and the phase in that sport's own words
 (golf: address, takeaway, backswing, downswing, impact, follow-through).
+Golf: backswing is the club still going back, before the ball. Finish is
+after the ball, club wrapped, chest toward the target. Never call the
+finish a backswing.
+scene is the place as someone would search it (golf course, kitchen, dock).
 Put those terms in actions and phrases even if caption stays ordinary.
 Return ONLY valid JSON:
 {"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null","phrases":["searchable terms for this frame"]}
@@ -28,6 +32,7 @@ Previous sampled frame: {previous}
 Describe this frame. Note what changed.
 If a person is visible, say where their face points relative to this camera.
 If this is a sport, name the sport and the phase in that sport's own words.
+Golf: do not label the finish as a backswing.
 Put those terms in actions and phrases.
 Return ONLY valid JSON:
 {{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null","change":"what unfolded since the last sample, or null","phrases":["searchable terms for this frame"]}}
@@ -38,8 +43,11 @@ SEARCH_PROMPT = """\
 The user asked for: {query}
 Look at the pixels. Match if that is on screen, or a clear example of it.
 A short category (sport, water, night) matches any frame that is clearly that.
-If they named a phase (impact, follow-through, serve), match that phase,
-not merely the same sport.
+If they named a place (a course, a city, a kitchen, the dock), match that place.
+If they named a phase, match that phase only, not the same sport.
+Golf: backswing is the club going back, before the ball. Finish / follow-
+through is after the ball — club wrapped around the body. Do not call the
+finish a backswing. Impact is club on the ball. Address is still, club down.
 Do not require their word to appear, and do not swap in a different scene.
 Face direction and gaze matter. If they asked to look at the camera, match
 only if a face is turned toward the lens. A back of the head, a profile

@@ -1107,15 +1107,23 @@
         bar.classList.remove("on");
         inner.style.width = "0";
       }
+      if (searching && data.job?.query) {
+        state.showingResults = true;
+        state.lastQuery = data.job.query;
+        state.busy = true;
+        hideIdle();
+        $("resultsHead").hidden = false;
+        const hits = data.job.hits || [];
+        if (hits.length) {
+          renderHits(data.job.query, hits, { live: true });
+        } else if (!$("results").innerHTML) {
+          $("resultsTitle").innerHTML = `Looking for <em>${escapeHtml(data.job.query)}</em>`;
+        }
+      }
       if (!state.showingResults) {
         updateEmpty(data);
-      }
-      if (state.showingResults) {
-        const query = data.job?.query || state.lastQuery;
-        const hits = data.job?.hits || [];
-        if (data.job?.status === "searching" && hits.length) {
-          renderHits(query, hits, { live: true });
-        }
+      } else {
+        hideIdle();
       }
     }
 
@@ -1187,7 +1195,7 @@
       }
       if (!data.folder) {
         showIdle("Choose a folder of clips.");
-      } else if (data.job?.status === "indexing" || data.job?.status === "loading") {
+      } else if (data.job?.status === "indexing" || data.job?.status === "loading" || data.job?.status === "searching") {
         hideIdle();
       } else if (!data.frames) {
         showIdle("Indexing this folder…");
@@ -1242,7 +1250,7 @@
             <span class="stamp">${escapeHtml(clock)}</span>
           </div>
           <div class="hit-body">
-            <div class="meta"><span>${escapeHtml(hit.filename || "")}</span></div>
+            <div class="meta"><span>${escapeHtml(hit.filename || "")}${hit.location ? ` · ${escapeHtml(hit.location)}` : ""}</span></div>
             <h2>${escapeHtml(hit.caption || "Untitled moment")}</h2>
             ${reason}
             <div class="hit-open">

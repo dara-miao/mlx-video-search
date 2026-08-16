@@ -88,6 +88,18 @@ class AppState:
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
+            status = str(self.job.get("status") or "")
+            worker_live = self.worker is not None and self.worker.is_alive()
+            if status in {"searching", "indexing", "loading"} and not worker_live:
+                query = str(self.job.get("query") or "")
+                hits = list(self.job.get("hits") or [])
+                self.job["status"] = "idle"
+                if status == "searching" and query:
+                    self.job["message"] = (
+                        f"{len(hits)} moment{'s' if len(hits) != 1 else ''} for “{query}”"
+                    )
+                elif not self.job.get("message"):
+                    self.job["message"] = "Ready"
             folder = self.folder
             job = dict(self.job)
             if isinstance(job.get("hits"), list):
