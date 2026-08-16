@@ -9,7 +9,10 @@
       var theme = localStorage.getItem("mlx-video-search-theme");
       if (theme === "ocean" || theme === "dark" || theme === "light") {
         document.documentElement.setAttribute("data-theme", theme);
+      } else {
+        theme = "dark";
       }
+      document.documentElement.style.colorScheme = theme === "light" ? "light" : "dark";
     } catch (e) {}
   </script>
   <style>
@@ -27,38 +30,7 @@
       font-display: swap;
       src: url("/media/fonts/inter.woff2") format("woff2");
     }
-    :root, [data-theme="light"] {
-      --text: #1c1914;
-      --bg: #f6f3ea;
-      --panel: #fffcf6;
-      --mute: #5e5a52;
-      --line: #d4cfc3;
-      --mark: #1c1914;
-      --btn-bg: #1c1914;
-      --btn-text: #f6f3ea;
-      --btn-hover: #3a342c;
-      --ghost-hover: #ece6d8;
-      --thumb: #ddd6c8;
-      --ascii: #6f7a72;
-      --ascii-opacity: 0.34;
-      --skin-sun: #a67c1d;
-      --skin-wave: #1c6a66;
-      --skin-moon: #1c1914;
-      --typed: #9a9386;
-      --caret: #b4ab9e;
-      --step-bg: rgba(246, 243, 234, 0.22);
-      --hit-hover-bg: #fff;
-      --hit-hover-line: #c4b9a8;
-      --progress-track: #e6ddd0;
-      --stamp-bg: #1c1914;
-      --stamp-text: #f6f3ea;
-      --focus: #1c1914;
-      --search-focus: #1c1914;
-      --radius: 8px;
-      --display: "DM Serif Display", Georgia, serif;
-      color-scheme: light;
-    }
-    [data-theme="dark"] {
+    :root, [data-theme="dark"] {
       --text: #efe8d8;
       --bg: #161513;
       --panel: #1f1d19;
@@ -88,6 +60,37 @@
       --radius: 0;
       --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
       color-scheme: dark;
+    }
+    [data-theme="light"] {
+      --text: #1c1914;
+      --bg: #f6f3ea;
+      --panel: #fffcf6;
+      --mute: #5e5a52;
+      --line: #d4cfc3;
+      --mark: #1c1914;
+      --btn-bg: #1c1914;
+      --btn-text: #f6f3ea;
+      --btn-hover: #3a342c;
+      --ghost-hover: #ece6d8;
+      --thumb: #ddd6c8;
+      --ascii: #6f7a72;
+      --ascii-opacity: 0.34;
+      --skin-sun: #a67c1d;
+      --skin-wave: #1c6a66;
+      --skin-moon: #1c1914;
+      --typed: #9a9386;
+      --caret: #b4ab9e;
+      --step-bg: rgba(246, 243, 234, 0.22);
+      --hit-hover-bg: #fff;
+      --hit-hover-line: #c4b9a8;
+      --progress-track: #e6ddd0;
+      --stamp-bg: #1c1914;
+      --stamp-text: #f6f3ea;
+      --focus: #1c1914;
+      --search-focus: #1c1914;
+      --radius: 8px;
+      --display: "DM Serif Display", Georgia, serif;
+      color-scheme: light;
     }
     [data-theme="ocean"] {
       --text: #f7fdff;
@@ -122,18 +125,23 @@
       color-scheme: dark;
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
-      background: var(--bg);
       min-height: 100vh;
     }
     [data-theme="ocean"] body {
       font-family: Inter, "Helvetica Neue", Helvetica, sans-serif;
     }
     button, input { font: inherit; color: inherit; }
-    button { cursor: pointer; }
+    button {
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background: none;
+      border: 0;
+    }
     .sea {
       position: fixed;
       inset: 0;
@@ -410,7 +418,9 @@
       flex-wrap: wrap;
       gap: 8px;
       margin: 14px 0 0;
+      visibility: hidden;
     }
+    html.is-ready .toolbar { visibility: visible; }
     .toolbar[hidden] { display: none; }
     .status {
       color: var(--mute);
@@ -683,12 +693,12 @@
     const $ = (id) => document.getElementById(id);
     const state = { busy: false, showingResults: false, lastJob: "", lastQuery: "" };
     const EXAMPLES = [
-      "the moment we hit the water",
-      "someone waving at the camera",
-      "the splash",
-      "a boat cutting through the wake",
+      "when she looks off camera",
+      "the red jacket",
+      "someone laughing",
+      "the dog running in",
       "hands in the air",
-      "looking back at the shore",
+      "cutting the cake",
     ];
 
     function startTypedPlaceholder(input, ghost) {
@@ -826,6 +836,7 @@
     function applyTheme(theme) {
       if (theme !== "ocean" && theme !== "dark" && theme !== "light") theme = "dark";
       document.documentElement.setAttribute("data-theme", theme);
+      document.documentElement.style.colorScheme = theme === "light" ? "light" : "dark";
       try { localStorage.setItem("mlx-video-search-theme", theme); } catch (e) {}
       document.querySelectorAll(".skin").forEach((btn) => {
         btn.setAttribute("aria-pressed", btn.dataset.skin === theme ? "true" : "false");
@@ -896,6 +907,7 @@
         ? `Index ${data.pending} clip${data.pending === 1 ? "" : "s"}`
         : "Index library";
       $("toolbar").hidden = false;
+      document.documentElement.classList.add("is-ready");
       const bar = $("progress");
       const inner = bar.querySelector("i");
       $("pauseBtn").hidden = !indexing;

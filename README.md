@@ -1,17 +1,12 @@
 # mlx-video-search
 
-Natural-language search over local video, running on [MLX](https://github.com/ml-explore/mlx), Apple's array framework for Apple Silicon.
+Natural-language search over local video, running on [MLX](https://github.com/ml-explore/mlx).
 
-It samples frames, captions them with a vision-language model, then matches a query like “the moment we hit the water” to a clip and timestamp. Nothing leaves the machine.
+It samples frames, captions them with a vision-language model, then matches a query like “when she looks off camera” to a clip and timestamp. Nothing leaves the machine.
 
 The default model is [Qwen3-VL 4B (4-bit)](https://huggingface.co/mlx-community/Qwen3-VL-4B-Instruct-4bit), loaded through [mlx-vlm](https://github.com/Blaizzy/mlx-vlm). Pass `--model` to use another mlx-vlm id.
 
-## Requirements
-
-- Apple Silicon Mac
-- Python 3.10+
-
-The first index downloads those Qwen3-VL weights from Hugging Face (~3 GB).
+MLX is built for Apple chips, so this runs on a Mac with Apple Silicon and Python 3.10+. The first index downloads those Qwen3-VL weights from Hugging Face (~3 GB).
 
 ## Install
 
@@ -42,7 +37,7 @@ mlx-video-search ~/Desktop/broll
 Search the index:
 
 ```bash
-mlx-video-search ~/Desktop/broll "the moment we hit the water"
+mlx-video-search ~/Desktop/broll "the dog running in"
 ```
 
 The index is `mlx-video-index.json` in that folder. Later runs skip videos already in it.
