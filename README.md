@@ -28,6 +28,8 @@ mlx-video-search
 
 Opens a local UI. Choose a folder, index it, search. Hits include a frame, timecode, and buttons to open the file in QuickTime or Finder.
 
+You can ask for a glance, a sport phase (`golf swing at impact`, `backswing`), a place (`Marbella`, `kitchen`), or a short category (`jump`, `sport`). iPhone clips often have GPS; search reads that on first look and can match the course or town, not only what’s in the caption.
+
 ## CLI
 
 Index a folder of clips:
@@ -42,7 +44,7 @@ Search the index:
 mlx-video-search ~/Desktop/broll "the dog running in"
 ```
 
-The index is `mlx-video-index.json` in that folder. Later runs skip videos already in it.
+The index is `mlx-video-index.json` in that folder. Later runs skip videos already in it. Re-index after a model or prompt change if you want new caption fields (gaze, sport phase). GPS place names attach without re-indexing.
 
 ```bash
 mlx-video-search --help
@@ -51,8 +53,9 @@ mlx-video-search --help
 ## How it works
 
 1. Sample frames from each video (default: one per second).
-2. Run the VLM on each frame and store a caption plus structured tags.
-3. On search, retrieve candidate frames from those captions using the query as written, then confirm against the pixels.
+2. Run the VLM on each frame and store a caption plus tags (scene, gaze, sport phase).
+3. Read GPS from the file when it’s there, and reverse-geocode it to a place name.
+4. On search, keep the query as written. Use captions and places to pick frames, then confirm against the pixels. Hits show up while it is still looking.
 
 ## License
 
