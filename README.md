@@ -16,16 +16,19 @@ cd mlx-video-search
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/.venv/bin/mlx-video-search" ~/.local/bin/mlx-video-search
 ```
 
-After that, the command is `mlx-video-search`. It only exists while the venv is active. A new terminal needs:
+After that, `mlx-video-search` works in any terminal. You don’t need to activate the venv again.
+
+If you still get `command not found`, `~/.local/bin` isn’t on your PATH. Add this to `~/.zshrc`, then open a new terminal:
 
 ```bash
-cd mlx-video-search
-source .venv/bin/activate
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-If you get `command not found`, the venv isn’t active. There is no `mlx-video-index` command — that’s the index file (`mlx-video-index.json`). Indexing is `mlx-video-search ~/path/to/clips`.
+There is no `mlx-video-index` command — that’s the index file (`mlx-video-index.json`). Indexing is `mlx-video-search ~/path/to/clips`.
 
 ## App
 
