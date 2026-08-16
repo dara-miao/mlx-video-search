@@ -13,6 +13,12 @@
         theme = "dark";
       }
       document.documentElement.style.colorScheme = theme === "light" ? "light" : "dark";
+      var ui = JSON.parse(localStorage.getItem("mlx-video-search-ui") || "null");
+      if (ui) {
+        if (ui.hasFolder) document.documentElement.setAttribute("data-has-folder", "true");
+        if (ui.needsScan) document.documentElement.setAttribute("data-needs-scan", "true");
+        if (ui.hasFrames) document.documentElement.setAttribute("data-has-frames", "true");
+      }
     } catch (e) {}
   </script>
   <style>
@@ -181,7 +187,8 @@
       overflow: hidden;
       user-select: none;
     }
-    .ascii-line { opacity: var(--ascii-opacity); }
+    .ascii-line { opacity: 0; }
+    .ascii-line.is-on { opacity: var(--ascii-opacity); }
     [data-theme="light"] .ascii {
       font-size: 9px;
       line-height: 1.05;
@@ -412,15 +419,31 @@
       background: var(--ghost-hover);
       color: var(--text);
     }
+    html[data-has-folder="true"] #browseBtn {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--line);
+    }
+    html[data-has-folder="true"] #browseBtn .step {
+      background: var(--ghost-hover);
+      color: var(--text);
+    }
+    html[data-needs-scan="true"] #indexBtn {
+      background: var(--btn-bg);
+      color: var(--btn-text);
+      border-color: var(--btn-bg);
+    }
+    html[data-needs-scan="true"] #indexBtn .step {
+      background: var(--step-bg);
+      color: var(--btn-text);
+    }
     [data-theme="ocean"] .step { border-radius: 999px; }
     .toolbar {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
       margin: 14px 0 0;
-      visibility: hidden;
     }
-    html.is-ready .toolbar { visibility: visible; }
     .toolbar[hidden] { display: none; }
     .status {
       color: var(--mute);
@@ -668,7 +691,7 @@
           <input id="query" type="text" autocomplete="off" spellcheck="false" aria-label="Search for a moment" />
           <span class="typed" id="placeholderGhost" aria-hidden="true"></span>
         </div>
-        <button class="btn" id="searchBtn" type="submit">Search</button>
+        <button class="btn" id="searchBtn" type="submit" disabled>Search</button>
       </form>
       <div class="toolbar" id="toolbar">
         <button class="btn tiny" id="browseBtn" type="button"><span class="step">1</span>Choose folder</button>
@@ -682,6 +705,33 @@
       <div class="idle" id="idle">
         <div class="empty" id="empty">Choose a folder of clips, then index it.</div>
       </div>
+      <script>
+        (function () {
+          var theme = document.documentElement.getAttribute("data-theme") || "dark";
+          document.querySelectorAll(".skin").forEach(function (btn) {
+            btn.setAttribute("aria-pressed", btn.getAttribute("data-skin") === theme ? "true" : "false");
+          });
+          var ui = null;
+          try { ui = JSON.parse(localStorage.getItem("mlx-video-search-ui") || "null"); } catch (e) {}
+          if (!ui) return;
+          var chip = document.getElementById("folderChip");
+          if (chip && ui.hasFolder && ui.folderName) {
+            var name = document.createElement("b");
+            name.textContent = ui.folderName;
+            chip.replaceChildren(name, document.createTextNode(" · " + (ui.counts || "")));
+          }
+          var browse = document.getElementById("browseBtn");
+          if (browse) browse.className = ui.hasFolder ? "btn ghost tiny" : "btn tiny";
+          var indexBtn = document.getElementById("indexBtn");
+          if (indexBtn) indexBtn.className = ui.needsScan ? "btn tiny" : "btn ghost tiny";
+          var indexLabel = document.getElementById("indexLabel");
+          if (indexLabel && ui.indexLabel) indexLabel.textContent = ui.indexLabel;
+          var searchBtn = document.getElementById("searchBtn");
+          if (searchBtn) searchBtn.disabled = !ui.hasFrames;
+          var empty = document.getElementById("empty");
+          if (empty && ui.empty) empty.textContent = ui.empty;
+        })();
+      </script>
     </div>
     <div class="results-head" id="resultsHead" hidden>
       <h2 id="resultsTitle"></h2>
@@ -824,6 +874,7 @@
           return;
         }
         pre.textContent = asciiField(t, cols, rows, cw, ch, refCw, refCh);
+        pre.classList.add("is-on");
         if (!quiet) t += 1;
         window.setTimeout(tick, quiet ? 60000 : 90);
       };
@@ -907,7 +958,7 @@
         ? `Index ${data.pending} clip${data.pending === 1 ? "" : "s"}`
         : "Index library";
       $("toolbar").hidden = false;
-      document.documentElement.classList.add("is-ready");
+      persistChrome(data);
       const bar = $("progress");
       const inner = bar.querySelector("i");
       $("pauseBtn").hidden = !indexing;
@@ -928,6 +979,35 @@
       if (!state.showingResults) {
         updateEmpty(data);
       }
+    }
+
+    function persistChrome(data) {
+      const name = data.folder ? data.folder.split("/").filter(Boolean).pop() : "";
+      const needsScan = Boolean(data.folder) && (Boolean(data.pending) || !data.frames);
+      let empty = "Choose a folder of clips, then index it.";
+      if (data.folder && !data.frames) {
+        empty = "Index this folder, then search.";
+      } else if (data.pending) {
+        empty = `${data.pending} clip${data.pending === 1 ? "" : "s"} still need indexing. Search works on what’s already in.`;
+      } else if (data.folder) {
+        empty = "Ask for a moment in the search box.";
+      }
+      const ui = {
+        folderName: name,
+        counts: `${data.videos_indexed}/${data.videos_on_disk} clips · ${data.frames} frames`,
+        hasFolder: Boolean(data.folder),
+        hasFrames: Boolean(data.frames),
+        needsScan,
+        indexLabel: data.pending
+          ? `Index ${data.pending} clip${data.pending === 1 ? "" : "s"}`
+          : "Index library",
+        empty,
+      };
+      try { localStorage.setItem("mlx-video-search-ui", JSON.stringify(ui)); } catch (e) {}
+      const root = document.documentElement;
+      root.toggleAttribute("data-has-folder", ui.hasFolder);
+      root.toggleAttribute("data-needs-scan", ui.needsScan);
+      root.toggleAttribute("data-has-frames", ui.hasFrames);
     }
 
     function hideIdle() {
