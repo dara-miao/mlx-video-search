@@ -7,6 +7,7 @@ name = "mlx-video-search"
 version = "0.1.0"
 description = "Natural-language search over local video on Apple Silicon, via MLX."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
   "mlx-vlm",

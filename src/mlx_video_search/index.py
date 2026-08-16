@@ -12,6 +12,7 @@ from mlx_video_search.frames import (
     format_timestamp,
     iter_sampled_frames,
     list_videos,
+    path_in_folder,
     probe_video,
     resolve_video,
     video_fingerprint,
@@ -112,6 +113,36 @@ def iter_index_progress(
     }
 
 
+def sanitize_index(index: dict[str, Any], folder: Path | str) -> dict[str, Any]:
+    root = Path(folder).expanduser().resolve()
+    index["folder"] = str(root)
+    videos = []
+    for video in index.get("videos") or []:
+        raw = video.get("path")
+        if not raw:
+            continue
+        inside = path_in_folder(raw, root)
+        if inside is None:
+            continue
+        item = dict(video)
+        item["path"] = str(inside)
+        videos.append(item)
+    frames = []
+    for frame in index.get("frames") or []:
+        raw = frame.get("file")
+        if not raw:
+            continue
+        inside = path_in_folder(raw, root)
+        if inside is None:
+            continue
+        item = dict(frame)
+        item["file"] = str(inside)
+        frames.append(item)
+    index["videos"] = videos
+    index["frames"] = frames
+    return index
+
+
 def load_index(path: Path) -> dict[str, Any]:
     if not path.exists():
         return empty_index(path.parent)
@@ -188,8 +219,14 @@ def save_index(path: Path, index: dict[str, Any]) -> None:
 
 
 def merge_video_result(index: dict[str, Any], result: dict[str, Any]) -> None:
+    folder = index.get("folder")
+    if not folder:
+        raise ValueError("Index has no folder.")
     video = dict(result["video"])
-    path = str(Path(video["path"]).expanduser().resolve())
+    inside = path_in_folder(video["path"], folder)
+    if inside is None:
+        raise ValueError("Video is outside the index folder.")
+    path = str(inside)
     video["path"] = path
     try:
         video["fingerprint"] = video_fingerprint(Path(path))
@@ -204,7 +241,10 @@ def merge_video_result(index: dict[str, Any], result: dict[str, Any]) -> None:
     else:
         existing.update(video)
     index["frames"] = [frame for frame in index["frames"] if frame.get("file") != path]
-    index["frames"].extend(result["frames"])
+    for frame in result["frames"]:
+        item = dict(frame)
+        item["file"] = path
+        index["frames"].append(item)
     if result.get("sample"):
         index["sample"] = result["sample"]
 
@@ -231,8 +271,7 @@ def index_folder(
     folder = folder.expanduser().resolve()
     videos = list_videos(folder)
     output = (output or default_index_path(folder)).expanduser().resolve()
-    index = load_index(output)
-    index["folder"] = str(folder)
+    index = sanitize_index(load_index(output), folder)
     index.setdefault(
         "sample",
         {

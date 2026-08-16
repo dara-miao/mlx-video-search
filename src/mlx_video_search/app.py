@@ -16,12 +16,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from mlx_video_search import DEFAULT_MODEL
-from mlx_video_search.frames import extract_frame_jpeg_cached, list_videos
+from mlx_video_search.frames import extract_frame_jpeg_cached, list_videos, path_in_folder
 from mlx_video_search.index import (
     default_index_path,
     index_folder,
     is_video_indexed,
     load_index,
+    sanitize_index,
 )
 from mlx_video_search.search import search_index
 from mlx_video_search.vlm import FrameVLM
@@ -106,6 +107,7 @@ class AppState:
         payload["index"] = str(index_path) if index_path.exists() else None
         index = load_index(index_path) if index_path.exists() else None
         if index:
+            index = sanitize_index(index, folder)
             indexed = [video for video in videos if is_video_indexed(video, index)]
             payload["videos_indexed"] = len(indexed)
             payload["frames"] = len(index.get("frames") or [])
@@ -149,13 +151,13 @@ def _current_folder(override: str | None = None) -> Path:
 
 
 def _allowed_file(path: Path) -> Path:
-    path = path.expanduser().resolve()
     folder = STATE.folder
-    if folder is None or not path.is_file():
+    if folder is None:
         raise HTTPException(404, "File not found.")
-    if not path.is_relative_to(folder.resolve()):
-        raise HTTPException(403, "That file is outside the selected folder.")
-    return path
+    inside = path_in_folder(path, folder)
+    if inside is None or not inside.is_file():
+        raise HTTPException(404, "File not found.")
+    return inside
 
 
 @app.get("/api/state")
@@ -269,7 +271,7 @@ async def api_search(body: SearchBody) -> dict[str, Any]:
     index_path = default_index_path(folder)
     if not index_path.exists():
         raise HTTPException(400, "Index this folder first.")
-    preview = load_index(index_path)
+    preview = sanitize_index(load_index(index_path), folder)
     if not preview.get("frames"):
         raise HTTPException(400, "The index is empty.")
     if STATE.job.get("status") in {"indexing", "loading"}:
@@ -279,6 +281,7 @@ async def api_search(body: SearchBody) -> dict[str, Any]:
         hits = await run_in_threadpool(
             _run_search,
             index_path,
+            folder,
             query,
             body.match_threshold,
             body.top,
@@ -293,8 +296,8 @@ async def api_search(body: SearchBody) -> dict[str, Any]:
         raise HTTPException(500, str(exc)) from exc
 
 
-def _run_search(index_path: Path, query: str, threshold: float, top: int) -> list[dict[str, Any]]:
-    index = load_index(index_path)
+def _run_search(index_path: Path, folder: Path, query: str, threshold: float, top: int) -> list[dict[str, Any]]:
+    index = sanitize_index(load_index(index_path), folder)
     if not index.get("frames"):
         raise RuntimeError("The index is empty.")
     return search_index(
@@ -303,6 +306,7 @@ def _run_search(index_path: Path, query: str, threshold: float, top: int) -> lis
         STATE.get_vlm(),
         match_threshold=threshold,
         top=top,
+        folder=folder,
     )
 
 

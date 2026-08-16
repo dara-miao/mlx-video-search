@@ -1,6 +1,6 @@
 # mlx-video-search
 
-Natural-language search over local video, running on [MLX](https://github.com/ml-explore/mlx) — Apple’s array framework for Apple Silicon.
+Natural-language search over local video, running on [MLX](https://github.com/ml-explore/mlx), Apple's array framework for Apple Silicon.
 
 It samples frames, captions them with a vision-language model, then matches a query like “the moment we hit the water” to a clip and timestamp. Nothing leaves the machine.
 
@@ -59,4 +59,4 @@ mlx-video-search --help
 
 ## License
 
-Not set yet.
+[MIT](LICENSE)

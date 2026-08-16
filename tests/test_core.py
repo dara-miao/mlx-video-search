@@ -1,7 +1,8 @@
 from pathlib import Path
+import tempfile
 
-from mlx_video_search.frames import format_timestamp
-from mlx_video_search.index import empty_index, load_index, merge_video_result
+from mlx_video_search.frames import format_timestamp, list_videos, path_in_folder
+from mlx_video_search.index import empty_index, load_index, merge_video_result, sanitize_index
 from mlx_video_search.grounding import candidate_frames, expand_candidates, library_context
 from mlx_video_search.search import lexical_search, _dedupe_hits
 from mlx_video_search.vlm import parse_json, parse_json_object
@@ -98,6 +99,58 @@ def test_merge_keeps_filename():
     )
     assert index["videos"][0]["filename"] == "clip.mov"
     assert index["frames"][0]["caption"] == "water"
+
+
+def test_folder_containment():
+    with tempfile.TemporaryDirectory() as raw:
+        root = Path(raw)
+        folder = root / "lib"
+        folder.mkdir()
+        inside = folder / "ok.mov"
+        inside.write_bytes(b"inside")
+        secret = root / "secret.mov"
+        secret.write_bytes(b"secret")
+        (folder / "sneak.mov").symlink_to(secret)
+
+        assert path_in_folder(inside, folder) == inside.resolve()
+        assert path_in_folder(secret, folder) is None
+        assert path_in_folder(folder / "sneak.mov", folder) is None
+        names = {path.name for path in list_videos(folder, required=False)}
+        assert names == {"ok.mov"}
+
+        index = empty_index(folder)
+        index["videos"] = [
+            {"path": str(inside), "filename": "ok.mov"},
+            {"path": str(secret), "filename": "secret.mov"},
+        ]
+        index["frames"] = [
+            {"file": str(inside), "filename": "ok.mov", "caption": "in"},
+            {"file": str(secret), "filename": "secret.mov", "caption": "out"},
+        ]
+        sanitize_index(index, folder)
+        assert [item["filename"] for item in index["videos"]] == ["ok.mov"]
+        assert [item["filename"] for item in index["frames"]] == ["ok.mov"]
+
+        try:
+            merge_video_result(
+                empty_index(folder),
+                {
+                    "video": {
+                        "path": str(secret),
+                        "filename": "secret.mov",
+                        "duration_sec": 1,
+                        "fps": 30,
+                        "frame_count": 1,
+                        "width": 8,
+                        "height": 8,
+                    },
+                    "frames": [{"file": str(secret), "filename": "secret.mov"}],
+                },
+            )
+        except ValueError as exc:
+            assert "outside" in str(exc)
+        else:
+            raise AssertionError("merge should reject files outside the folder")
 
 
 def test_visual_spec_retrieves_from_captions():
@@ -208,5 +261,6 @@ if __name__ == "__main__":
     test_lexical_and_dedupe()
     test_corrupt_index_recovers()
     test_merge_keeps_filename()
+    test_folder_containment()
     test_visual_spec_retrieves_from_captions()
     print("ok")

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from mlx_video_search.frames import extract_frame_pil, format_timestamp
+from mlx_video_search.frames import extract_frame_pil, format_timestamp, path_in_folder
 from mlx_video_search.vlm import FrameVLM, parse_json
 
 NEARBY_OFFSETS = (-0.33, -0.16, 0.16, 0.33)
@@ -158,6 +158,7 @@ def visual_rerank(
     match_threshold: float,
     durations: dict[str, float] | None = None,
     max_looks: int = MAX_VISUAL_LOOKS,
+    folder: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     looks = str(spec.get("looks_like") or query)
     not_this = str(spec.get("not_this") or "")
@@ -202,6 +203,8 @@ def visual_rerank(
         path = frame.get("file")
         stamp = float(frame.get("timestamp_sec") or 0.0)
         if not path:
+            continue
+        if folder is not None and path_in_folder(str(path), folder) is None:
             continue
         try:
             match, confidence, same_scene, judged = inspect(str(path), stamp)

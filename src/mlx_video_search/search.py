@@ -10,7 +10,7 @@ from mlx_video_search.grounding import (
     interpret_query,
     visual_rerank,
 )
-from mlx_video_search.index import default_index_path
+from mlx_video_search.index import default_index_path, sanitize_index
 from mlx_video_search.vlm import FrameVLM
 
 _WORD = re.compile(r"[a-z0-9']+")
@@ -47,7 +47,12 @@ def search_index(
     vlm: FrameVLM,
     match_threshold: float = 0.5,
     top: int = 10,
+    folder: Path | str | None = None,
 ) -> list[dict[str, Any]]:
+    root = folder or index.get("folder")
+    if not root:
+        return []
+    index = sanitize_index(index, root)
     frames = [
         frame
         for frame in (index.get("frames") or [])
@@ -73,6 +78,7 @@ def search_index(
         vlm,
         match_threshold,
         durations=durations,
+        folder=root,
     )
     if verified:
         return _dedupe_hits(verified)[:top]

@@ -16,6 +16,7 @@ from mlx_video_search.index import (
     load_index,
     merge_video_result,
     save_index,
+    sanitize_index,
 )
 from mlx_video_search.search import resolve_index_path, search_index
 from mlx_video_search.vlm import FrameVLM
@@ -140,7 +141,7 @@ def _index_one(args: argparse.Namespace, path: Path) -> None:
     if args.output:
         output = args.output.expanduser().resolve()
         index = load_index(output)
-        index["folder"] = str(path.parent)
+        index["folder"] = str(path.parent.resolve())
         merge_video_result(index, result)
         save_index(output, index)
         print(f"wrote {output}", file=sys.stderr)
@@ -157,7 +158,8 @@ def _search(args: argparse.Namespace, path: Path) -> None:
         print(f"Build one first: mlx-video-search {hint}", file=sys.stderr)
         sys.exit(1)
 
-    index = load_index(index_path)
+    folder = path if path.is_dir() else path.parent
+    index = sanitize_index(load_index(index_path), folder)
     frames = index.get("frames") or []
     if not frames:
         print(f"Index is empty: {index_path}", file=sys.stderr)
@@ -173,6 +175,7 @@ def _search(args: argparse.Namespace, path: Path) -> None:
         vlm,
         match_threshold=args.match_threshold,
         top=args.top,
+        folder=folder,
     )
     for hit in hits:
         print(

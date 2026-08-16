@@ -11,6 +11,17 @@ from PIL import Image
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"}
 
 
+def path_in_folder(path: Path | str, folder: Path | str) -> Path | None:
+    try:
+        root = Path(folder).expanduser().resolve()
+        resolved = Path(path).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return None
+    if resolved.is_relative_to(root):
+        return resolved
+    return None
+
+
 @dataclass(frozen=True)
 class VideoInfo:
     path: Path
@@ -31,15 +42,24 @@ class SampledFrame:
 
 
 def list_videos(path: Path, required: bool = True) -> list[Path]:
-    path = path.expanduser().resolve()
+    path = Path(path).expanduser()
     if path.is_file():
-        return [path]
+        folder = path.parent.resolve()
+        inside = path_in_folder(path, folder)
+        if inside is None:
+            raise FileNotFoundError(f"Video is outside {folder}")
+        return [inside]
     if path.is_dir():
+        folder = path.resolve()
         videos = sorted(
-            p for p in path.iterdir() if p.suffix.lower() in VIDEO_EXTENSIONS
+            inside
+            for item in folder.iterdir()
+            if item.suffix.lower() in VIDEO_EXTENSIONS
+            for inside in [path_in_folder(item, folder)]
+            if inside is not None
         )
         if required and not videos:
-            raise FileNotFoundError(f"No video files found in {path}")
+            raise FileNotFoundError(f"No video files found in {folder}")
         return videos
     raise FileNotFoundError(path)
 
