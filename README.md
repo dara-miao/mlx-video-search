@@ -16,19 +16,7 @@ cd mlx-video-search
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
-mkdir -p ~/.local/bin
-ln -sf "$(pwd)/.venv/bin/mlx-video-search" ~/.local/bin/mlx-video-search
 ```
-
-After that, `mlx-video-search` works in any terminal. You don’t need to activate the venv again.
-
-If you still get `command not found`, `~/.local/bin` isn’t on your PATH. Add this to `~/.zshrc`, then open a new terminal:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-There is no `mlx-video-index` command — that’s the index file (`mlx-video-index.json`). Indexing is `mlx-video-search ~/path/to/clips`.
 
 ## App
 
@@ -52,7 +40,7 @@ Search the index:
 mlx-video-search ~/Desktop/broll "the dog running in"
 ```
 
-The index is written to `mlx-video-index.json` in that folder. Later runs skip videos already in it.
+The index is `mlx-video-index.json` in that folder. Later runs skip videos already in it.
 
 ```bash
 mlx-video-search --help
