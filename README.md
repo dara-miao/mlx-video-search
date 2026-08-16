@@ -16,6 +16,8 @@ cd mlx-video-search
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/.venv/bin/mlx-video-search" ~/.local/bin/mlx-video-search
 ```
 
 ## App
