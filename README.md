@@ -2,7 +2,7 @@
 
 Natural-language search over local video, running on [MLX](https://github.com/ml-explore/mlx).
 
-It samples frames, captions them with a vision-language model, then matches a query like “when she looks off camera” to a clip and timestamp. Nothing leaves the machine.
+It samples frames, captions them with a vision-language model, then matches a query like “the moment I look away” to a clip and timestamp. Local on your computer.
 
 The default model is [Qwen3-VL 4B (4-bit)](https://huggingface.co/mlx-community/Qwen3-VL-4B-Instruct-4bit), loaded through [mlx-vlm](https://github.com/Blaizzy/mlx-vlm). Pass `--model` to use another mlx-vlm id.
 
