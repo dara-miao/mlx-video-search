@@ -18,6 +18,15 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+After that, the command is `mlx-video-search`. It only exists while the venv is active. A new terminal needs:
+
+```bash
+cd mlx-video-search
+source .venv/bin/activate
+```
+
+If you get `command not found`, the venv isn’t active. There is no `mlx-video-index` command — that’s the index file (`mlx-video-index.json`). Indexing is `mlx-video-search ~/path/to/clips`.
+
 ## App
 
 ```bash
@@ -40,7 +49,7 @@ Search the index:
 mlx-video-search ~/Desktop/broll "the dog running in"
 ```
 
-The index is `mlx-video-index.json` in that folder. Later runs skip videos already in it.
+The index is written to `mlx-video-index.json` in that folder. Later runs skip videos already in it.
 
 ```bash
 mlx-video-search --help
