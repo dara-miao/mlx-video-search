@@ -4,7 +4,12 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from mlx_video_search.frames import extract_frame_pil, format_timestamp, path_in_folder
+from mlx_video_search.frames import (
+    extract_frame_pil,
+    format_timestamp,
+    iter_sampled_frames,
+    path_in_folder,
+)
 from mlx_video_search.vlm import FrameVLM
 
 NEARBY_OFFSETS = (-0.33, -0.16, 0.16, 0.33)
@@ -150,6 +155,120 @@ def expand_candidates(
     return picked[:limit]
 
 
+def explore_matched_clips(
+    frames: list[dict[str, Any]],
+    clips: list[dict[str, Any]],
+    moments: list[dict[str, Any]],
+    durations: dict[str, float],
+    query: str,
+) -> list[dict[str, Any]]:
+    picked: list[dict[str, Any]] = []
+    seen: set[tuple[Any, Any]] = set()
+
+    def add(frame: dict[str, Any]) -> None:
+        key = (frame.get("file"), round(float(frame.get("timestamp_sec") or 0.0), 2))
+        if key in seen:
+            return
+        seen.add(key)
+        picked.append(frame)
+
+    asked_phase = ""
+    from mlx_video_search.catalog import infer_phase
+
+    asked_phase = infer_phase(query)
+    clip_paths = {str(clip.get("path") or "") for clip in clips if clip.get("path")}
+    ranked_moments = [
+        moment
+        for moment in moments
+        if str(moment.get("file") or "") in clip_paths
+    ]
+    if asked_phase:
+        ranked_moments.sort(
+            key=lambda item: 0
+            if asked_phase in f"{item.get('phase') or ''} {item.get('moment') or ''}".lower()
+            else 1
+        )
+    for moment in ranked_moments:
+        add(moment)
+
+    for clip in clips:
+        path = str(clip.get("path") or "")
+        if not path:
+            continue
+        group = sorted(
+            [frame for frame in frames if str(frame.get("file") or "") == path],
+            key=lambda item: float(item.get("timestamp_sec") or 0.0),
+        )
+        duration = float(durations.get(path) or clip.get("duration_sec") or 0.0)
+        proto = group[0] if group else {
+            "file": path,
+            "filename": clip.get("filename") or Path(path).name,
+            "location": clip.get("place") or "",
+        }
+        if duration <= 24:
+            for frame in densify_candidates(
+                [proto],
+                group or [proto],
+                durations={path: duration},
+                step=0.5,
+                limit=32,
+            ):
+                add(frame)
+            continue
+        for frame in _spread(group, 8) if group else []:
+            add(frame)
+        if Path(path).is_file():
+            for stamp in motion_peaks(Path(path), duration):
+                add(
+                    {
+                        "file": path,
+                        "filename": proto.get("filename"),
+                        "location": proto.get("location") or "",
+                        "timestamp_sec": stamp,
+                        "caption": proto.get("caption"),
+                    }
+                )
+    return picked
+
+
+def motion_peaks(
+    path: Path,
+    duration: float,
+    step: float = 0.5,
+    limit: int = 12,
+) -> list[float]:
+    from mlx_video_search.index import _frame_signature, _similar_signature
+
+    prev = None
+    stable = 0
+    peaks: list[float] = []
+    try:
+        samples = iter_sampled_frames(path, interval_sec=step, max_side=96)
+    except Exception:
+        return []
+    for sampled in samples:
+        sig = _frame_signature(sampled.image)
+        if prev is None:
+            prev = sig
+            continue
+        if _similar_signature(sig, prev):
+            stable += 1
+            continue
+        if stable >= 2:
+            peaks.append(round(sampled.timestamp_sec, 3))
+        stable = 0
+        prev = sig
+    if len(peaks) <= limit:
+        return peaks
+    last = len(peaks) - 1
+    picks = []
+    for i in range(limit):
+        idx = round(i * last / (limit - 1))
+        if peaks[idx] not in picks:
+            picks.append(peaks[idx])
+    return picks
+
+
 def visual_rerank(
     candidates: list[dict[str, Any]],
     query: str,
@@ -269,14 +388,25 @@ def visual_rerank(
             best: dict[str, Any] | None = None
             if match and confidence >= match_threshold:
                 best = hit_from(frame, str(path), stamp, judged, confidence)
-            elif (
-                looks_used < max_looks
-                and not phase
-                and (same_scene or (precise and confidence >= 0.2))
+            elif looks_used < max_looks and (
+                (
+                    phase
+                    and float((durations or {}).get(str(path)) or 0.0) > 24
+                    and (same_scene or confidence >= 0.25)
+                )
+                or (
+                    not phase
+                    and (same_scene or (precise and confidence >= 0.2))
+                )
             ):
-                think(f"Nearby frames in {name}")
+                think(f"Inside {name} · {format_timestamp(stamp)}")
                 duration = float((durations or {}).get(str(path)) or 0.0)
-                for neighbor in _neighbor_times(stamp, duration, precise=precise):
+                nearby = (
+                    _probe_around(stamp, duration, radius=2.0, step=0.5)
+                    if phase
+                    else _neighbor_times(stamp, duration, precise=precise)
+                )
+                for neighbor in nearby:
                     if looks_used >= max_looks:
                         break
                     if stop_event is not None and stop_event.is_set():
@@ -324,6 +454,10 @@ def _frame_text(frame: dict[str, Any]) -> str:
     parts = [
         str(frame.get("caption") or ""),
         str(frame.get("scene") or ""),
+        str(frame.get("kind") or ""),
+        str(frame.get("sport") or ""),
+        str(frame.get("phase") or ""),
+        str(frame.get("place") or ""),
         str(frame.get("moment") or ""),
         str(frame.get("change") or ""),
         str(frame.get("gaze") or ""),
@@ -422,9 +556,29 @@ def densify_candidates(
         duration = float((durations or {}).get(path) or 0.0)
         if not duration and group:
             duration = float(group[-1].get("timestamp_sec") or 0.0)
-        t = 0.0
-        while t <= duration + 1e-9:
-            stamp = round(t, 3)
+        seeds = sorted(
+            {
+                round(float(frame.get("timestamp_sec") or 0.0), 3)
+                for frame in candidates
+                if str(frame.get("file") or "") == path
+            }
+        )
+        if duration <= 24:
+            stamps: list[float] = []
+            t = 0.0
+            while t <= duration + 1e-9:
+                stamps.append(round(t, 3))
+                t = round(t + step, 3)
+        else:
+            nearby: set[float] = set()
+            for seed in seeds:
+                t = max(0.0, seed - 2.0)
+                end = min(duration, seed + 2.0) if duration else seed + 2.0
+                while t <= end + 1e-9:
+                    nearby.add(round(t, 3))
+                    t = round(t + step, 3)
+            stamps = sorted(nearby)
+        for stamp in stamps:
             match = next(
                 (
                     frame
@@ -447,7 +601,6 @@ def densify_candidates(
                 )
             if len(picked) >= limit:
                 return picked[:limit]
-            t = round(t + step, 3)
     return picked[:limit]
 
 
@@ -481,4 +634,22 @@ def _neighbor_times(stamp: float, duration: float, precise: bool = False) -> lis
             continue
         if candidate not in times:
             times.append(candidate)
+    return times
+
+
+def _probe_around(
+    stamp: float,
+    duration: float,
+    radius: float = 2.0,
+    step: float = 0.5,
+) -> list[float]:
+    times: list[float] = []
+    start = max(0.0, stamp - radius)
+    end = min(duration, stamp + radius) if duration else stamp + radius
+    t = round(start, 3)
+    while t <= end + 1e-9:
+        if abs(t - stamp) >= 0.2:
+            times.append(round(t, 3))
+        t = round(t + step, 3)
+    times.sort(key=lambda item: abs(item - stamp))
     return times

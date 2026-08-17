@@ -69,6 +69,22 @@ def resolve_video(path: Path) -> Path:
     return videos[0]
 
 
+INDEX_TARGET_FRAMES = 40
+
+
+def interval_for_duration(
+    duration_sec: float,
+    base: float = 1.0,
+    target: int = INDEX_TARGET_FRAMES,
+) -> float:
+    """Keep short clips at `base`. Stretch long clips so they stay near `target` captions."""
+    if duration_sec <= 0 or target <= 0 or base <= 0:
+        return max(base, 1.0)
+    if duration_sec <= target * base:
+        return base
+    return round(duration_sec / target, 3)
+
+
 def estimate_sample_count(
     info: VideoInfo,
     interval_sec: float,

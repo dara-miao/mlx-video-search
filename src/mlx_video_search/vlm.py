@@ -11,32 +11,30 @@ from mlx_video_search import DEFAULT_MODEL
 
 INDEX_PROMPT = """\
 You are indexing a single video frame from someone's camera roll.
-Describe only what is on screen. A random clip, a glance away, or the last
-thing they filmed is still a valid frame.
-If a person is visible, say where their face points relative to this camera.
-If this is a sport, name the sport and the phase in that sport's own words.
+Describe only what is on screen.
+kind is one of: sport, water, people, place, vehicle, indoor, other.
+scene is a short searchable place (golf course, dock, climbing gym, kitchen).
+If this is a sport, set sport and phase in that sport's own words.
 Golf order: setup, backswing, top of backswing, downswing, impact,
 follow-through, finish. Backswing is the club going back or at the top,
-before the ball. Finish is after follow-through, body open toward the
+ball still on the ground. Finish is after the ball, body open toward the
 target. Do not label a finish as a backswing.
-scene is the place as someone would search it (golf course, kitchen, dock).
-Put those terms in actions and phrases even if caption stays ordinary.
+moment is the memorable instant (a splash, a look away, top of backswing)
+or null if this is just the same scene continuing.
 Return ONLY valid JSON:
-{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null","phrases":["searchable terms for this frame"]}
-moment is ordinary language (a splash, a look away, impact) or null if nothing stands out.
+{"caption":"what is happening","kind":"sport","scene":"place","sport":"golf or empty","phase":"backswing or empty","gaze":"at camera, away, down, or unknown","moment":null,"phrases":["searchable terms"]}
 No markdown. No commentary.
 """
 
 INDEX_FOLLOW_PROMPT = """\
 Previous sampled frame: {previous}
 Describe this frame. Note what changed.
-If a person is visible, say where their face points relative to this camera.
-If this is a sport, name the sport and the phase in that sport's own words.
+kind is one of: sport, water, people, place, vehicle, indoor, other.
 Golf order: setup, backswing, top, downswing, impact, follow-through, finish.
 A wrap toward the target after the ball is the finish, not a backswing.
-Put those terms in actions and phrases.
+moment is only if something new happened, else null.
 Return ONLY valid JSON:
-{{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null","change":"what unfolded since the last sample, or null","phrases":["searchable terms for this frame"]}}
+{{"caption":"what is happening","kind":"sport","scene":"place","sport":"golf or empty","phase":"backswing or empty","gaze":"at camera, away, down, or unknown","moment":null,"change":"what unfolded, or null","phrases":["searchable terms"]}}
 No markdown. No commentary.
 """
 
@@ -157,10 +155,10 @@ class FrameVLM:
             tokens = 96 if max_tokens is None else max_tokens
         elif previous:
             prompt = INDEX_FOLLOW_PROMPT.format(previous=_escape_braces(previous))
-            tokens = 180 if max_tokens is None else max_tokens
+            tokens = 140 if max_tokens is None else max_tokens
         else:
             prompt = INDEX_PROMPT
-            tokens = 180 if max_tokens is None else max_tokens
+            tokens = 140 if max_tokens is None else max_tokens
         formatted = apply_chat_template(
             self._processor,
             self._config,

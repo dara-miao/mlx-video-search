@@ -310,6 +310,10 @@ def _begin_index(
                 filename=event.get("filename"),
                 message=f"{event.get('filename')} · frame {event.get('frame')}",
             )
+        elif kind == "similar":
+            STATE.set_job(
+                message=f"Same as {event.get('like')} · skipped {event.get('filename')}",
+            )
         elif kind == "error":
             STATE.set_job(message=f"Skipped {event.get('filename')}: {event.get('message')}")
         elif kind == "stopped":

@@ -10,9 +10,11 @@ from mlx_video_search.grounding import (
     candidate_frames,
     densify_candidates,
     expand_candidates,
+    explore_matched_clips,
     query_spec,
     visual_rerank,
 )
+from mlx_video_search.catalog import attach_catalog, rank_clips
 from mlx_video_search.index import default_index_path, sanitize_index, save_index
 from mlx_video_search.location import attach_locations
 from mlx_video_search.vlm import FrameVLM
@@ -67,7 +69,10 @@ def search_index(
         return []
     index = sanitize_index(index, root)
     think("Reading places")
-    if attach_locations(index):
+    changed = attach_locations(index)
+    if attach_catalog(index):
+        changed = True
+    if changed:
         try:
             save_index(default_index_path(Path(str(root))), index)
         except OSError:
@@ -77,7 +82,12 @@ def search_index(
         for frame in (index.get("frames") or [])
         if frame.get("file") and Path(str(frame["file"])).is_file()
     ]
-    if not frames:
+    moments = [
+        moment
+        for moment in (index.get("moments") or [])
+        if moment.get("file") and Path(str(moment["file"])).is_file()
+    ]
+    if not frames and not moments:
         return []
 
     think(f"Reading {len(frames)} frames")
@@ -93,31 +103,56 @@ def search_index(
     phase = bool(spec.get("phase"))
     broad = bool(spec.get("broad"))
     specific = bool(spec.get("specific"))
-    seeds = candidate_frames(frames, spec, query, limit=8)
-    if seeds:
-        think(f"{len(seeds)} clip{'s' if len(seeds) != 1 else ''} look related")
-    else:
-        think("Nothing obvious in the captions")
-    video_count = len({str(frame.get("file") or "") for frame in frames})
-    scan_library = (
-        (precise and not phase) or not seeds or (broad and video_count <= 24)
-    )
-    deeper = precise or specific or scan_library
-    candidates = expand_candidates(
-        frames,
-        seeds,
-        limit=32 if deeper else 14,
-        per_video=6 if deeper else 3,
-        every_video=scan_library,
-    )
-    if phase and seeds:
-        candidates = densify_candidates(
-            candidates,
-            frames,
-            durations=durations,
-            step=0.5,
-            limit=32,
+    clips = rank_clips(list(index.get("videos") or []), query)
+    if clips:
+        names = ", ".join(
+            str(clip.get("filename") or Path(str(clip.get("path") or "")).name)
+            for clip in clips[:2]
         )
+        think(f"{names} match the ask")
+        scoped = {
+            str(clip.get("path") or "")
+            for clip in clips
+            if clip.get("path")
+        }
+        frames = [frame for frame in frames if str(frame.get("file") or "") in scoped]
+        moments = [
+            moment for moment in moments if str(moment.get("file") or "") in scoped
+        ]
+        candidates = explore_matched_clips(
+            frames,
+            clips,
+            moments,
+            durations,
+            query,
+        )
+        deeper = True
+    else:
+        seeds = candidate_frames(moments + frames, spec, query, limit=8)
+        if seeds:
+            think(f"{len(seeds)} clip{'s' if len(seeds) != 1 else ''} look related")
+        else:
+            think("Nothing obvious in the captions")
+        video_count = len({str(frame.get("file") or "") for frame in frames})
+        scan_library = (
+            (precise and not phase) or not seeds or (broad and video_count <= 24)
+        )
+        deeper = precise or specific or scan_library
+        candidates = expand_candidates(
+            frames,
+            seeds,
+            limit=32 if deeper else 14,
+            per_video=6 if deeper else 3,
+            every_video=scan_library,
+        )
+        if phase and seeds:
+            candidates = densify_candidates(
+                candidates,
+                frames,
+                durations=durations,
+                step=0.5,
+                limit=32,
+            )
     if stopped():
         return []
     verified = visual_rerank(
@@ -195,6 +230,10 @@ def _frame_blob(frame: dict[str, Any]) -> str:
     parts = [
         str(frame.get("caption") or ""),
         str(frame.get("scene") or ""),
+        str(frame.get("kind") or ""),
+        str(frame.get("sport") or ""),
+        str(frame.get("phase") or ""),
+        str(frame.get("place") or ""),
         str(frame.get("filename") or ""),
         str(frame.get("moment") or ""),
         str(frame.get("change") or ""),

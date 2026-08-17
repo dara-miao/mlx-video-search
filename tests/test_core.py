@@ -3,12 +3,14 @@ import tempfile
 
 from PIL import Image
 
-from mlx_video_search.frames import format_timestamp, list_videos, path_in_folder
+from mlx_video_search.frames import format_timestamp, interval_for_duration, list_videos, path_in_folder
+from mlx_video_search.catalog import ask_from_query, attach_catalog, rank_clips
 from mlx_video_search.index import (
     empty_index,
     load_index,
     merge_video_result,
     sanitize_index,
+    _clips_look_alike,
     _frame_signature,
     _similar_signature,
 )
@@ -327,6 +329,11 @@ def test_similar_frames_are_detected():
     bright = Image.new("RGB", (64, 64), (210, 210, 210))
     assert _similar_signature(_frame_signature(dark), _frame_signature(close))
     assert not _similar_signature(_frame_signature(dark), _frame_signature(bright))
+    same = [_frame_signature(dark)] * 3
+    other = [_frame_signature(bright)] * 3
+    assert _clips_look_alike(10.0, same, 10.2, same)
+    assert not _clips_look_alike(10.0, same, 10.2, other)
+    assert not _clips_look_alike(10.0, same, 40.0, same)
 
 
 def test_query_is_not_rewritten_from_the_library():
@@ -405,6 +412,27 @@ def test_query_is_not_rewritten_from_the_library():
     stamps = [float(item["timestamp_sec"]) for item in dense if item["filename"] == "golf.mov"]
     assert 1.5 in stamps
 
+    assert interval_for_duration(10) == 1.0
+    assert interval_for_duration(30) == 1.0
+    assert interval_for_duration(348) == 8.7
+    long_seed = {
+        "file": "/tmp/long.mov",
+        "filename": "long.mov",
+        "timestamp_sec": 100.0,
+        "caption": "A golfer on a course",
+    }
+    long_dense = densify_candidates(
+        [long_seed],
+        [long_seed],
+        durations={"/tmp/long.mov": 300.0},
+        step=0.5,
+        limit=32,
+    )
+    long_stamps = [float(item["timestamp_sec"]) for item in long_dense]
+    assert min(long_stamps) >= 98
+    assert 100.0 in long_stamps
+    assert max(long_stamps) <= 102
+
     dock = {
         "file": "/tmp/dock.mov",
         "filename": "dock.mov",
@@ -464,6 +492,72 @@ def test_location_query_uses_clip_place():
     assert hits[0]["filename"] == "golf.mov"
 
 
+def test_catalog_rolls_up_clips():
+    index = empty_index(Path("/tmp"))
+    index["videos"] = [
+        {
+            "path": "/tmp/golf.mov",
+            "filename": "golf.mov",
+            "duration_sec": 10,
+            "location": {"text": "Marbella Country Club"},
+        },
+        {"path": "/tmp/gym.mov", "filename": "gym.mov", "duration_sec": 90},
+        {"path": "/tmp/dock.mov", "filename": "dock.mov", "duration_sec": 3},
+    ]
+    index["frames"] = [
+        {
+            "file": "/tmp/golf.mov",
+            "filename": "golf.mov",
+            "timestamp_sec": float(t),
+            "caption": "A golfer prepares to swing",
+            "scene": "golf course",
+            "actions": ["golfing"],
+        }
+        for t in range(11)
+    ] + [
+        {
+            "file": "/tmp/gym.mov",
+            "filename": "gym.mov",
+            "timestamp_sec": float(t),
+            "caption": "A person exercising on a rower",
+            "scene": "gym",
+            "actions": ["exercising", "rowing"],
+        }
+        for t in range(40)
+    ] + [
+        {
+            "file": "/tmp/dock.mov",
+            "filename": "dock.mov",
+            "timestamp_sec": 1.0,
+            "caption": "Two women jump off a wooden dock",
+            "scene": "ocean dock",
+            "actions": ["jumping"],
+        }
+    ]
+    assert attach_catalog(index)
+    golf = next(item for item in index["videos"] if item["filename"] == "golf.mov")
+    assert golf["kind"] == "sport"
+    assert golf["sport"] == "golf"
+    assert golf["scene"] == "golf course"
+    assert "Marbella" in golf["place"]
+    gym_frames = [frame for frame in index["frames"] if frame["filename"] == "gym.mov"]
+    assert len(gym_frames) <= 16
+    assert any(item["filename"] == "dock.mov" for item in index["moments"])
+    sport_hits = candidate_frames(index["frames"], query_spec("sport"), "sport")
+    assert sport_hits
+    assert any(item["filename"] == "golf.mov" for item in sport_hits)
+    asked = ask_from_query("backswing")
+    assert asked["sport"] == "golf"
+    assert asked["phase"] == "backswing"
+    assert ask_from_query("jump")["sport"] == ""
+    ranked = rank_clips(index["videos"], "backswing golf")
+    assert ranked
+    assert ranked[0]["filename"] == "golf.mov"
+    jumped = rank_clips(index["videos"], "jump")
+    assert jumped
+    assert jumped[0]["filename"] == "dock.mov"
+
+
 if __name__ == "__main__":
     test_parse_json_and_timestamps()
     test_lexical_and_dedupe()
@@ -475,4 +569,5 @@ if __name__ == "__main__":
     test_similar_frames_are_detected()
     test_query_is_not_rewritten_from_the_library()
     test_location_query_uses_clip_place()
+    test_catalog_rolls_up_clips()
     print("ok")

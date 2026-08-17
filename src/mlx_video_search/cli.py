@@ -9,7 +9,7 @@ from typing import Any
 from tqdm import tqdm
 
 from mlx_video_search import DEFAULT_MODEL
-from mlx_video_search.frames import estimate_sample_count, probe_video
+from mlx_video_search.frames import estimate_sample_count, interval_for_duration, probe_video
 from mlx_video_search.index import (
     index_folder,
     iter_index_progress,
@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--interval",
         type=float,
         default=1.0,
-        help="Seconds between sampled frames (default: 1.0)",
+        help="Minimum seconds between index frames; long clips stretch past this (default: 1.0)",
     )
     parser.add_argument(
         "--max-frames",
@@ -119,12 +119,13 @@ def _index_one(args: argparse.Namespace, path: Path) -> None:
     print(f"loading {args.model}", file=sys.stderr)
     result = None
     info = probe_video(path)
-    total = estimate_sample_count(info, args.interval, args.max_frames)
+    used_interval = interval_for_duration(info.duration_sec, args.interval)
+    total = estimate_sample_count(info, used_interval, args.max_frames)
     with tqdm(total=total or None, desc=path.name, unit="frame") as bar:
         for count, payload in iter_index_progress(
             path,
             query=args.query,
-            interval_sec=args.interval,
+            interval_sec=used_interval,
             max_frames=args.max_frames,
             max_side=args.max_side,
             model_id=args.model,
@@ -227,6 +228,13 @@ def _index_folder(args: argparse.Namespace, folder: Path) -> None:
             if total and (frame_bar.total is None or total > frame_bar.total):
                 frame_bar.total = total
             frame_bar.refresh()
+        elif kind == "similar":
+            print(
+                f"skipped {event.get('filename')} (same as {event.get('like')})",
+                file=sys.stderr,
+            )
+            if video_bar is not None:
+                video_bar.update(1)
         elif kind == "saved":
             if frame_bar is not None:
                 frame_bar.close()

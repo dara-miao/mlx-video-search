@@ -9,7 +9,9 @@ from typing import Any, Iterator
 from mlx_video_search import DEFAULT_MODEL
 from mlx_video_search.frames import (
     estimate_sample_count,
+    extract_frame_pil,
     format_timestamp,
+    interval_for_duration,
     iter_sampled_frames,
     list_videos,
     path_in_folder,
@@ -17,6 +19,7 @@ from mlx_video_search.frames import (
     resolve_video,
     video_fingerprint,
 )
+from mlx_video_search.catalog import attach_catalog, frame_is_moment
 from mlx_video_search.location import probe_location
 from mlx_video_search.vlm import FrameVLM
 
@@ -63,6 +66,7 @@ def iter_index_progress(
 ) -> Iterator[tuple[int, dict[str, Any] | None]]:
     video_path = resolve_video(path)
     info = probe_video(video_path)
+    interval_sec = interval_for_duration(info.duration_sec, interval_sec)
     if vlm is None:
         vlm = FrameVLM(model_id)
     vlm.load()
@@ -71,8 +75,7 @@ def iter_index_progress(
     hits: list[dict[str, Any]] = []
     count = 0
     previous = None
-    prev_sig = None
-    prev_parsed: dict[str, Any] | None = None
+    recent: list[tuple[tuple[int, ...], dict[str, Any]]] = []
 
     for sampled in iter_sampled_frames(
         video_path,
@@ -82,8 +85,16 @@ def iter_index_progress(
     ):
         count += 1
         sig = _frame_signature(sampled.image)
-        if prev_parsed is not None and _similar_signature(sig, prev_sig):
-            parsed = dict(prev_parsed)
+        reused = next(
+            (
+                parsed
+                for old_sig, parsed in recent
+                if _similar_signature(sig, old_sig)
+            ),
+            None,
+        )
+        if reused is not None:
+            parsed = dict(reused)
             parsed["change"] = None
         else:
             parsed = vlm.describe(
@@ -91,9 +102,13 @@ def iter_index_progress(
                 query=query,
                 previous=None if query else previous,
             )
-            prev_parsed = parsed
-            prev_sig = sig
+            recent.append((sig, parsed))
+            if len(recent) > 3:
+                recent = recent[-3:]
         record = _frame_record(video_path, sampled, parsed, query)
+        if reused is not None and frames and not frame_is_moment(record):
+            yield count, None
+            continue
         frames.append(record)
         if not query:
             previous = parsed.get("caption") or previous
@@ -110,6 +125,7 @@ def iter_index_progress(
         "frame_count": info.frame_count,
         "width": info.width,
         "height": info.height,
+        "looks": _looks_to_json(_sample_looks(video_path, info.duration_sec)),
     }
     if loc:
         video["location"] = loc
@@ -156,8 +172,20 @@ def sanitize_index(index: dict[str, Any], folder: Path | str) -> dict[str, Any]:
         item = dict(frame)
         item["file"] = str(inside)
         frames.append(item)
+    moments = []
+    for moment in index.get("moments") or []:
+        raw = moment.get("file")
+        if not raw:
+            continue
+        inside = path_in_folder(raw, root)
+        if inside is None:
+            continue
+        item = dict(moment)
+        item["file"] = str(inside)
+        moments.append(item)
     index["videos"] = videos
     index["frames"] = frames
+    index["moments"] = moments
     return index
 
 
@@ -174,11 +202,14 @@ def load_index(path: Path) -> dict[str, Any]:
     data.setdefault("version", INDEX_VERSION)
     data.setdefault("videos", [])
     data.setdefault("frames", [])
+    data.setdefault("moments", [])
     data.setdefault("sample", {})
     if not isinstance(data["videos"], list):
         data["videos"] = []
     if not isinstance(data["frames"], list):
         data["frames"] = []
+    if not isinstance(data.get("moments"), list):
+        data["moments"] = []
     return data
 
 
@@ -189,6 +220,7 @@ def empty_index(folder: Path, sample: dict[str, Any] | None = None) -> dict[str,
         "sample": sample or {},
         "videos": [],
         "frames": [],
+        "moments": [],
     }
 
 
@@ -299,6 +331,8 @@ def index_folder(
             "model": model_id,
         },
     )
+    if attach_catalog(index):
+        save_index(output, index)
     skipped = [video for video in videos if is_video_indexed(video, index)]
     pending = [video for video in videos if not is_video_indexed(video, index)]
     summary = {
@@ -346,11 +380,26 @@ def index_folder(
         )
         try:
             info = probe_video(video)
-            estimated = estimate_sample_count(info, interval_sec, max_frames)
+            looks = _sample_looks(video, info.duration_sec)
+            twin = _similar_indexed_clip(index, info.duration_sec, looks)
+            if twin is not None:
+                result = _reuse_similar_clip(index, twin, video, info, looks)
+                merge_video_result(index, result)
+                attach_catalog(index)
+                save_index(output, index)
+                indexed += 1
+                emit(
+                    "similar",
+                    filename=video.name,
+                    like=twin.get("filename") or Path(str(twin.get("path") or "")).name,
+                )
+                continue
+            used_interval = interval_for_duration(info.duration_sec, interval_sec)
+            estimated = estimate_sample_count(info, used_interval, max_frames)
             result = None
             for count, payload in iter_index_progress(
                 video,
-                interval_sec=interval_sec,
+                interval_sec=used_interval,
                 max_frames=max_frames,
                 max_side=max_side,
                 model_id=model_id,
@@ -385,6 +434,7 @@ def index_folder(
                 emit("error", filename=video.name, message="no frames")
                 continue
             merge_video_result(index, result)
+            attach_catalog(index)
             save_index(output, index)
             indexed += 1
             emit("saved", filename=video.name, frames=len(index["frames"]))
@@ -439,6 +489,9 @@ def _frame_record(video_path: Path, sampled, parsed: dict[str, Any], query: str 
         record["moment"] = _optional_str(parsed.get("moment"))
         record["change"] = _optional_str(parsed.get("change"))
         record["gaze"] = _optional_str(parsed.get("gaze"))
+        record["kind"] = _optional_str(parsed.get("kind"))
+        record["sport"] = _optional_str(parsed.get("sport"))
+        record["phase"] = _optional_str(parsed.get("phase"))
     return record
 
 
@@ -453,9 +506,124 @@ def _frame_signature(image: Any) -> tuple[int, ...]:
 def _similar_signature(left: tuple[int, ...] | None, right: tuple[int, ...] | None) -> bool:
     if left is None or right is None or len(left) != len(right):
         return False
-    if abs(left[0] - right[0]) > 18:
+    if abs(left[0] - right[0]) > 28:
         return False
-    return sum(a != b for a, b in zip(left[1:], right[1:])) <= 10
+    return sum(a != b for a, b in zip(left[1:], right[1:])) <= 20
+
+
+def _sample_looks(path: Path, duration_sec: float) -> list[tuple[int, ...]]:
+    times = [0.0]
+    if duration_sec > 1:
+        times.append(round(duration_sec * 0.5, 3))
+    if duration_sec > 2:
+        times.append(round(max(0.0, duration_sec - 0.12), 3))
+    looks: list[tuple[int, ...]] = []
+    for stamp in times:
+        try:
+            looks.append(_frame_signature(extract_frame_pil(path, stamp, max_side=128)))
+        except Exception:
+            continue
+    return looks
+
+
+def _looks_to_json(looks: list[tuple[int, ...]]) -> list[list[int]]:
+    return [list(item) for item in looks]
+
+
+def _looks_from_json(value: Any) -> list[tuple[int, ...]]:
+    if not isinstance(value, list):
+        return []
+    parsed: list[tuple[int, ...]] = []
+    for item in value:
+        if isinstance(item, list) and item:
+            parsed.append(tuple(int(part) for part in item))
+    return parsed
+
+
+def _clips_look_alike(
+    duration_a: float,
+    looks_a: list[tuple[int, ...]],
+    duration_b: float,
+    looks_b: list[tuple[int, ...]],
+) -> bool:
+    longer = max(duration_a, duration_b)
+    if longer <= 0:
+        return False
+    if abs(duration_a - duration_b) > max(1.5, 0.08 * longer):
+        return False
+    if not looks_a or not looks_b:
+        return False
+    pairs = min(len(looks_a), len(looks_b))
+    hits = sum(
+        1
+        for left, right in zip(looks_a[:pairs], looks_b[:pairs])
+        if _similar_signature(left, right)
+    )
+    return hits >= min(2, pairs)
+
+
+def _similar_indexed_clip(
+    index: dict[str, Any],
+    duration_sec: float,
+    looks: list[tuple[int, ...]],
+) -> dict[str, Any] | None:
+    for item in index.get("videos") or []:
+        raw = item.get("path")
+        if not raw:
+            continue
+        other_looks = _looks_from_json(item.get("looks"))
+        if not other_looks:
+            other_path = Path(str(raw))
+            if other_path.is_file():
+                other_looks = _sample_looks(other_path, float(item.get("duration_sec") or 0.0))
+                item["looks"] = _looks_to_json(other_looks)
+        if _clips_look_alike(
+            duration_sec,
+            looks,
+            float(item.get("duration_sec") or 0.0),
+            other_looks,
+        ):
+            return item
+    return None
+
+
+def _reuse_similar_clip(
+    index: dict[str, Any],
+    twin: dict[str, Any],
+    dest: Path,
+    info: Any,
+    looks: list[tuple[int, ...]],
+) -> dict[str, Any]:
+    src = str(twin.get("path") or "")
+    src_duration = float(twin.get("duration_sec") or 0.0) or info.duration_sec
+    scale = info.duration_sec / src_duration if src_duration else 1.0
+    frames = []
+    for frame in index.get("frames") or []:
+        if frame.get("file") != src:
+            continue
+        item = dict(frame)
+        stamp = round(float(frame.get("timestamp_sec") or 0.0) * scale, 3)
+        item["file"] = str(dest)
+        item["filename"] = dest.name
+        item["timestamp_sec"] = stamp
+        item["timestamp"] = format_timestamp(stamp)
+        frames.append(item)
+    return {
+        "video": {
+            "path": str(dest),
+            "filename": dest.name,
+            "duration_sec": round(info.duration_sec, 3),
+            "fps": round(float(getattr(info, "fps", 0.0) or 0.0), 3),
+            "frame_count": getattr(info, "frame_count", 0),
+            "width": getattr(info, "width", 0),
+            "height": getattr(info, "height", 0),
+            "looks": _looks_to_json(looks),
+            "similar_to": twin.get("filename") or Path(src).name,
+        },
+        "sample": dict(index.get("sample") or {}),
+        "frames": frames,
+        "hits": [],
+    }
 
 
 def _optional_str(value: Any) -> str | None:
