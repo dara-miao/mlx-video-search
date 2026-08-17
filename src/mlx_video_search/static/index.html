@@ -870,7 +870,7 @@
   </div>
   <script>
     const $ = (id) => document.getElementById(id);
-    const state = { busy: false, showingResults: false, lastJob: "", lastQuery: "", hitKey: "", folder: "", picker: null, pickerGuard: 0 };
+    const state = { busy: false, searching: false, showingResults: false, lastJob: "", lastQuery: "", jobQuery: "", hitKey: "", folder: "", picker: null, pickerGuard: 0 };
     const EXAMPLES = [
       "when she looks off camera",
       "the red jacket",
@@ -1062,6 +1062,17 @@
       return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${secs.toFixed(1).padStart(4, "0")}` : body;
     }
 
+    function syncSearchButton(indexing, searching, hasFrames) {
+      const btn = $("searchBtn");
+      const typed = $("query").value.trim();
+      btn.disabled = indexing || !hasFrames;
+      if (searching && typed && typed === (state.jobQuery || state.lastQuery)) {
+        btn.textContent = "Stop";
+      } else {
+        btn.textContent = "Search";
+      }
+    }
+
     function renderState(data) {
       state.folder = data.folder || "";
       const name = data.folder ? data.folder.split("/").filter(Boolean).pop() : "No folder selected";
@@ -1076,8 +1087,9 @@
       const searching = data.job?.status === "searching";
       const needsScan = Boolean(data.folder) && (Boolean(data.pending) || !data.frames);
       state.busy = indexing || searching;
-      $("searchBtn").disabled = indexing || searching || !data.frames;
-      $("searchBtn").textContent = searching ? "Looking…" : "Search";
+      state.searching = searching;
+      state.jobQuery = data.job?.query || "";
+      syncSearchButton(indexing, searching, Boolean(data.frames));
       renderThoughts(data);
       $("browseBtn").hidden = false;
       $("browseBtn").disabled = indexing;
@@ -1209,7 +1221,9 @@
     function showSearching(query) {
       state.showingResults = true;
       state.lastQuery = query;
+      state.jobQuery = query;
       state.busy = true;
+      state.searching = true;
       hideIdle();
       $("resultsHead").hidden = false;
       $("resultsTitle").innerHTML = `Looking for <em>${escapeHtml(query)}</em>`;
@@ -1393,14 +1407,23 @@
     $("pauseBtn").onclick = async () => {
       renderState(await api("/api/cancel", { method: "POST", body: "{}" }));
     };
+    $("query").addEventListener("input", () => {
+      if (state.searching) {
+        syncSearchButton(false, true, true);
+      }
+    });
     $("searchForm").onsubmit = async (event) => {
       event.preventDefault();
       const query = $("query").value.trim();
       if (!query) return;
-      $("searchBtn").disabled = true;
-      $("searchBtn").textContent = "Looking…";
+      if (state.searching && query === (state.jobQuery || state.lastQuery)) {
+        await stopSearch();
+        return;
+      }
       $("status").textContent = "";
       showSearching(query);
+      $("searchBtn").textContent = "Stop";
+      $("searchBtn").disabled = false;
       try {
         await api("/api/search", {
           method: "POST",
@@ -1415,6 +1438,7 @@
         $("searchBtn").disabled = false;
         $("searchBtn").textContent = "Search";
         state.busy = false;
+        state.searching = false;
       }
     };
     $("results").onclick = async (event) => {
@@ -1442,6 +1466,25 @@
       await openClip(decodeURIComponent(open.dataset.open), 0, true);
     };
 
+    async function stopSearch() {
+      try {
+        await api("/api/cancel", { method: "POST", body: "{}" });
+      } catch (_) {
+        /* already idle */
+      }
+      state.searching = false;
+      state.busy = false;
+      state.showingResults = false;
+      state.jobQuery = "";
+      $("results").innerHTML = "";
+      $("resultsHead").hidden = true;
+      $("think").hidden = true;
+      $("searchBtn").disabled = false;
+      $("searchBtn").textContent = "Search";
+      $("query").focus();
+      await refresh();
+    }
+
     document.addEventListener("keydown", (event) => {
       if (event.key === "/" && document.activeElement !== $("query") && !event.metaKey && !event.ctrlKey) {
         event.preventDefault();
@@ -1451,6 +1494,11 @@
         if (!$("picker").hidden) {
           event.preventDefault();
           closePicker();
+          return;
+        }
+        if (state.searching) {
+          event.preventDefault();
+          stopSearch();
           return;
         }
         if (state.showingResults && document.activeElement !== $("query")) {
@@ -1472,8 +1520,8 @@
             $("resultsHead").hidden = true;
           }
           renderState(data);
-          if (finishedSearch && state.showingResults) {
-            renderHits(data.job?.query || state.lastQuery, data.job?.hits || []);
+          if (finishedSearch && state.showingResults && data.job?.query) {
+            renderHits(data.job.query, data.job?.hits || []);
           }
         } catch (_) {
           /* keep last UI if the server is briefly restarting */

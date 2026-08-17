@@ -12,7 +12,13 @@ from mlx_video_search.index import (
     _frame_signature,
     _similar_signature,
 )
-from mlx_video_search.grounding import candidate_frames, expand_candidates, query_spec
+from mlx_video_search.grounding import (
+    candidate_frames,
+    densify_candidates,
+    expand_candidates,
+    query_spec,
+    _phase_contradiction,
+)
 from mlx_video_search.location import parse_iso6709
 from mlx_video_search.search import lexical_search, _dedupe_hits, _spec_aliases
 from mlx_video_search.vlm import parse_json, parse_json_object
@@ -353,6 +359,51 @@ def test_query_is_not_rewritten_from_the_library():
     assert backswing["specific"] is True
     assert backswing["broad"] is False
     assert backswing["precise"] is True
+    assert backswing["phase"] is True
+    assert _phase_contradiction(
+        "golf backswing",
+        {"caption": "Follow-through, club over the lead shoulder"},
+    )
+    assert not _phase_contradiction(
+        "golf backswing",
+        {"caption": "Club going back at the top, facing away from the camera"},
+    )
+    assert not _phase_contradiction(
+        "golf backswing",
+        {"reason": "Later frame is starting down from the top"},
+    )
+
+    golf = [
+        {
+            "file": "/tmp/golf.mov",
+            "filename": "golf.mov",
+            "timestamp_sec": t,
+            "caption": "A golfer on a sunny course",
+        }
+        for t in (0.0, 1.0, 2.0)
+    ]
+    wall = [
+        {
+            "file": "/tmp/wall.mov",
+            "filename": "wall.mov",
+            "timestamp_sec": 0.0,
+            "caption": "A woman climbing a wall",
+        }
+    ]
+    phase_seeds = candidate_frames(golf + wall, query_spec("backswing golf"), "backswing golf")
+    assert phase_seeds
+    assert phase_seeds[0]["filename"] == "golf.mov"
+    phase_cands = expand_candidates(golf + wall, phase_seeds, limit=8, per_video=3, every_video=False)
+    assert {item["filename"] for item in phase_cands} == {"golf.mov"}
+    dense = densify_candidates(
+        phase_cands,
+        golf,
+        durations={"/tmp/golf.mov": 2.0},
+        step=0.5,
+        limit=16,
+    )
+    stamps = [float(item["timestamp_sec"]) for item in dense if item["filename"] == "golf.mov"]
+    assert 1.5 in stamps
 
     dock = {
         "file": "/tmp/dock.mov",

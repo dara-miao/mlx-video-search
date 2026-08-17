@@ -38,8 +38,11 @@ _PHASE_MARKERS = (
     "followthrough",
     "impact",
     "address",
+    "setup",
+    "set up",
     "finish",
     "top of the",
+    "top of backswing",
 )
 _PIXEL_MARKERS = (
     "look at",
@@ -68,6 +71,7 @@ def query_spec(query: str) -> dict[str, Any]:
         "looks_like": text,
         "not_this": "",
         "precise": precise or phase,
+        "phase": phase,
         "broad": (not precise) and (not phase) and len(words) <= 2,
         "specific": (not precise) and (len(words) >= 3 or phase),
         "related": [],
@@ -156,6 +160,7 @@ def visual_rerank(
     max_looks: int = MAX_VISUAL_LOOKS,
     folder: Path | str | None = None,
     on_progress: Any = None,
+    stop_event: Any = None,
 ) -> list[dict[str, Any]]:
     def think(message: str, hits: list[dict[str, Any]] | None = None) -> None:
         if on_progress is None:
@@ -168,6 +173,7 @@ def visual_rerank(
     verified: list[dict[str, Any]] = []
     looks_used = 0
     precise = bool(spec.get("precise"))
+    phase = bool(spec.get("phase"))
 
     def hit_from(
         frame: dict[str, Any],
@@ -213,16 +219,32 @@ def visual_rerank(
             nonlocal looks_used
             looks_used += 1
             image = image_at(path, timestamp_sec)
-            judged = vlm.describe(image, query=query)
+            later = None
+            if phase:
+                duration = float((durations or {}).get(path) or 0.0)
+                later_t = round(timestamp_sec + 0.4, 3)
+                if duration:
+                    later_t = min(later_t, max(0.0, duration - 0.05))
+                if abs(later_t - timestamp_sec) >= 0.15:
+                    try:
+                        later = extract_frame_pil(Path(path), later_t, max_side=512)
+                    except Exception:
+                        later = None
+            judged = vlm.describe(image, query=query, later=later)
             match = _as_bool(judged.get("match"))
             same_scene = _as_bool(judged.get("same_scene"))
             try:
                 confidence = float(judged.get("confidence") or 0.0)
             except (TypeError, ValueError):
                 confidence = 0.0
+            if match and _phase_contradiction(query, judged):
+                match = False
+                confidence = min(confidence, 0.2)
             return match, confidence, same_scene, judged
 
         for index, frame in enumerate(candidates):
+            if stop_event is not None and stop_event.is_set():
+                return []
             if looks_used >= max_looks:
                 break
             path = frame.get("file")
@@ -247,12 +269,18 @@ def visual_rerank(
             best: dict[str, Any] | None = None
             if match and confidence >= match_threshold:
                 best = hit_from(frame, str(path), stamp, judged, confidence)
-            elif looks_used < max_looks and (same_scene or (precise and confidence >= 0.2)):
+            elif (
+                looks_used < max_looks
+                and not phase
+                and (same_scene or (precise and confidence >= 0.2))
+            ):
                 think(f"Nearby frames in {name}")
                 duration = float((durations or {}).get(str(path)) or 0.0)
                 for neighbor in _neighbor_times(stamp, duration, precise=precise):
                     if looks_used >= max_looks:
                         break
+                    if stop_event is not None and stop_event.is_set():
+                        return []
                     try:
                         n_match, n_conf, _, n_judged = inspect(str(path), neighbor)
                     except Exception:
@@ -352,6 +380,87 @@ def _string_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     return []
+
+
+def densify_candidates(
+    candidates: list[dict[str, Any]],
+    frames: list[dict[str, Any]],
+    durations: dict[str, float] | None = None,
+    step: float = 0.5,
+    limit: int = 32,
+) -> list[dict[str, Any]]:
+    if not candidates:
+        return candidates
+    indexed: dict[str, list[dict[str, Any]]] = {}
+    for frame in frames:
+        indexed.setdefault(str(frame.get("file") or ""), []).append(frame)
+    order: list[str] = []
+    proto: dict[str, dict[str, Any]] = {}
+    for frame in candidates:
+        path = str(frame.get("file") or "")
+        if path and path not in proto:
+            proto[path] = frame
+            order.append(path)
+    picked: list[dict[str, Any]] = []
+    seen: set[tuple[Any, Any]] = set()
+
+    def add(frame: dict[str, Any]) -> bool:
+        key = (frame.get("file"), round(float(frame.get("timestamp_sec") or 0.0), 2))
+        if key in seen:
+            return False
+        seen.add(key)
+        picked.append(frame)
+        return True
+
+    half = step / 2
+    for path in order:
+        sample = proto[path]
+        group = sorted(
+            indexed.get(path) or [],
+            key=lambda item: float(item.get("timestamp_sec") or 0.0),
+        )
+        duration = float((durations or {}).get(path) or 0.0)
+        if not duration and group:
+            duration = float(group[-1].get("timestamp_sec") or 0.0)
+        t = 0.0
+        while t <= duration + 1e-9:
+            stamp = round(t, 3)
+            match = next(
+                (
+                    frame
+                    for frame in group
+                    if abs(float(frame.get("timestamp_sec") or 0.0) - stamp) <= half
+                ),
+                None,
+            )
+            if match is not None:
+                add(match)
+            else:
+                add(
+                    {
+                        "file": sample.get("file"),
+                        "filename": sample.get("filename"),
+                        "location": sample.get("location") or "",
+                        "timestamp_sec": stamp,
+                        "caption": sample.get("caption"),
+                    }
+                )
+            if len(picked) >= limit:
+                return picked[:limit]
+            t = round(t + step, 3)
+    return picked[:limit]
+
+
+def _phase_contradiction(query: str, judged: dict[str, Any]) -> bool:
+    asked = query.lower()
+    blob = f"{judged.get('caption') or ''} {judged.get('reason') or ''}".lower()
+    if "backswing" in asked:
+        if "follow-through" in blob or "follow through" in blob:
+            return True
+        return False
+    if "finish" in asked or "follow-through" in asked or "follow through" in asked:
+        return "backswing" in blob and "not" not in blob
+    return False
 
 
 def _as_bool(value: Any) -> bool:

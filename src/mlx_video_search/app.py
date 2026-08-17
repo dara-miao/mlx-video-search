@@ -344,8 +344,13 @@ def _begin_index(
 
 @app.post("/api/cancel")
 def api_cancel() -> dict[str, Any]:
+    status = STATE.job.get("status")
     STATE.stop.set()
-    STATE.set_job(message="Pausing…")
+    if status == "searching":
+        STATE.stop = threading.Event()
+        STATE.set_job(status="idle", message="", hits=[], thoughts=[], query="")
+    else:
+        STATE.set_job(message="Pausing…")
     return STATE.snapshot()
 
 
@@ -361,11 +366,17 @@ def api_search(body: SearchBody) -> dict[str, Any]:
     preview = sanitize_index(load_index(index_path), folder)
     if not preview.get("frames"):
         raise HTTPException(400, "The index is empty.")
-    if STATE.job.get("status") in {"indexing", "loading", "searching"}:
-        raise HTTPException(409, "Wait for that to finish.")
+    status = STATE.job.get("status")
+    if status in {"indexing", "loading"}:
+        raise HTTPException(409, "Wait for indexing to finish.")
     if STATE.worker and STATE.worker.is_alive():
-        raise HTTPException(409, "Wait for that to finish.")
-    STATE.stop.clear()
+        if status in {"indexing", "loading"}:
+            raise HTTPException(409, "Wait for indexing to finish.")
+        STATE.stop.set()
+        STATE.stop = threading.Event()
+    else:
+        STATE.stop.clear()
+    stop = STATE.stop
     STATE.set_job(
         status="searching",
         message=f"Looking for “{query}”",
@@ -375,6 +386,8 @@ def api_search(body: SearchBody) -> dict[str, Any]:
     )
 
     def progress(event: dict[str, Any]) -> None:
+        if stop.is_set():
+            return
         if event.get("message"):
             STATE.add_thought(str(event.get("message") or ""))
         if "hits" in event:
@@ -389,7 +402,10 @@ def api_search(body: SearchBody) -> dict[str, Any]:
                 body.match_threshold,
                 body.top,
                 progress,
+                stop,
             )
+            if stop.is_set():
+                return
             STATE.set_job(
                 status="idle",
                 hits=hits,
@@ -397,6 +413,8 @@ def api_search(body: SearchBody) -> dict[str, Any]:
                 message=f"{len(hits)} moment{'s' if len(hits) != 1 else ''} for “{query}”",
             )
         except Exception as exc:
+            if stop.is_set():
+                return
             STATE.set_job(status="error", message=str(exc), hits=[], query=query)
 
     STATE.worker = threading.Thread(target=run, daemon=True)
@@ -411,6 +429,7 @@ def _run_search(
     threshold: float,
     top: int,
     on_progress: Any = None,
+    stop_event: Any = None,
 ) -> list[dict[str, Any]]:
     index = sanitize_index(load_index(index_path), folder)
     if not index.get("frames"):
@@ -423,6 +442,7 @@ def _run_search(
         top=top,
         folder=folder,
         on_progress=on_progress,
+        stop_event=stop_event,
     )
 
 

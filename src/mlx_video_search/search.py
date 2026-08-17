@@ -8,6 +8,7 @@ from mlx_video_search.grounding import (
     MAX_VISUAL_LOOKS,
     PRECISE_VISUAL_LOOKS,
     candidate_frames,
+    densify_candidates,
     expand_candidates,
     query_spec,
     visual_rerank,
@@ -52,10 +53,14 @@ def search_index(
     top: int = 10,
     folder: Path | str | None = None,
     on_progress: Any = None,
+    stop_event: Any = None,
 ) -> list[dict[str, Any]]:
     def think(message: str) -> None:
         if on_progress is not None:
             on_progress({"message": message})
+
+    def stopped() -> bool:
+        return stop_event is not None and stop_event.is_set()
 
     root = folder or index.get("folder")
     if not root:
@@ -85,6 +90,7 @@ def search_index(
     }
 
     precise = bool(spec.get("precise"))
+    phase = bool(spec.get("phase"))
     broad = bool(spec.get("broad"))
     specific = bool(spec.get("specific"))
     seeds = candidate_frames(frames, spec, query, limit=8)
@@ -93,7 +99,9 @@ def search_index(
     else:
         think("Nothing obvious in the captions")
     video_count = len({str(frame.get("file") or "") for frame in frames})
-    scan_library = precise or not seeds or (broad and video_count <= 24)
+    scan_library = (
+        (precise and not phase) or not seeds or (broad and video_count <= 24)
+    )
     deeper = precise or specific or scan_library
     candidates = expand_candidates(
         frames,
@@ -102,6 +110,16 @@ def search_index(
         per_video=6 if deeper else 3,
         every_video=scan_library,
     )
+    if phase and seeds:
+        candidates = densify_candidates(
+            candidates,
+            frames,
+            durations=durations,
+            step=0.5,
+            limit=32,
+        )
+    if stopped():
+        return []
     verified = visual_rerank(
         candidates,
         query,
@@ -112,7 +130,10 @@ def search_index(
         folder=root,
         max_looks=PRECISE_VISUAL_LOOKS if deeper else MAX_VISUAL_LOOKS,
         on_progress=on_progress,
+        stop_event=stop_event,
     )
+    if stopped():
+        return []
     if verified:
         return _dedupe_hits(verified)[:top]
 

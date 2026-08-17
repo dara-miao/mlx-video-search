@@ -14,11 +14,11 @@ You are indexing a single video frame from someone's camera roll.
 Describe only what is on screen. A random clip, a glance away, or the last
 thing they filmed is still a valid frame.
 If a person is visible, say where their face points relative to this camera.
-If this is a sport, name the sport and the phase in that sport's own words
-(golf: address, takeaway, backswing, downswing, impact, follow-through).
-Golf: backswing is the club still going back, before the ball. Finish is
-after the ball, club wrapped, chest toward the target. Never call the
-finish a backswing.
+If this is a sport, name the sport and the phase in that sport's own words.
+Golf order: setup, backswing, top of backswing, downswing, impact,
+follow-through, finish. Backswing is the club going back or at the top,
+before the ball. Finish is after follow-through, body open toward the
+target. Do not label a finish as a backswing.
 scene is the place as someone would search it (golf course, kitchen, dock).
 Put those terms in actions and phrases even if caption stays ordinary.
 Return ONLY valid JSON:
@@ -32,7 +32,8 @@ Previous sampled frame: {previous}
 Describe this frame. Note what changed.
 If a person is visible, say where their face points relative to this camera.
 If this is a sport, name the sport and the phase in that sport's own words.
-Golf: do not label the finish as a backswing.
+Golf order: setup, backswing, top, downswing, impact, follow-through, finish.
+A wrap toward the target after the ball is the finish, not a backswing.
 Put those terms in actions and phrases.
 Return ONLY valid JSON:
 {{"caption":"what is happening","objects":["visible nouns"],"actions":["what is going on"],"scene":"place or setting","details":["clothing, weather, notable visuals"],"gaze":"at camera, away, down, or unknown","moment":"the memorable thing in this frame, or null","change":"what unfolded since the last sample, or null","phrases":["searchable terms for this frame"]}}
@@ -45,14 +46,28 @@ Look at the pixels. Match if that is on screen, or a clear example of it.
 A short category (sport, water, night) matches any frame that is clearly that.
 If they named a place (a course, a city, a kitchen, the dock), match that place.
 If they named a phase, match that phase only, not the same sport.
-Golf: backswing is the club going back, before the ball. Finish / follow-
-through is after the ball — club wrapped around the body. Do not call the
-finish a backswing. Impact is club on the ball. Address is still, club down.
 Do not require their word to appear, and do not swap in a different scene.
-Face direction and gaze matter. If they asked to look at the camera, match
-only if a face is turned toward the lens. A back of the head, a profile
-looking at a wall, or looking down is not a match. If they asked to look
-away, the face must not be toward the camera.
+Only judge face direction if they asked about a look, a glance, or the camera.
+If they asked to look at the camera, match only if a face is turned toward
+the lens. A back of the head is not that. If they asked to look away, the
+face must not be toward the camera.
+Return ONLY valid JSON:
+{{"match":false,"confidence":0.0,"same_scene":false,"caption":"one sentence","reason":"why this is or is not that instant"}}
+same_scene is true if this is the right clip but maybe the wrong instant.
+confidence is 0 to 1. No markdown.
+"""
+
+PHASE_SEARCH_PROMPT = """\
+The user asked for: {query}
+The first image is now. The second image is a fraction of a second later.
+Golf order: setup, backswing, top of backswing, downswing, impact,
+follow-through, finish. Backswing is before finish.
+Judge NOW. Later only shows which way the swing is going.
+Backswing / top: the ball is still on the ground, club going back or at the
+top. Later may already be the downswing or impact — that confirms NOW was
+the backswing, not the finish.
+Finish: NOW the ball is already gone, body open toward the target, pose held.
+Match only the phase they named. Do not invent which side the club is on.
 Return ONLY valid JSON:
 {{"match":false,"confidence":0.0,"same_scene":false,"caption":"one sentence","reason":"why this is or is not that instant"}}
 same_scene is true if this is the right clip but maybe the wrong instant.
@@ -125,13 +140,19 @@ class FrameVLM:
         query: str | None = None,
         spec: str = "",
         previous: str | None = None,
+        later: Image.Image | None = None,
         max_tokens: int | None = None,
     ) -> dict[str, Any]:
         self.load()
         from mlx_vlm import generate
         from mlx_vlm.prompt_utils import apply_chat_template
 
-        if query:
+        images = [image]
+        if query and later is not None:
+            prompt = PHASE_SEARCH_PROMPT.format(query=_escape_braces(query))
+            images = [image, later]
+            tokens = 96 if max_tokens is None else max_tokens
+        elif query:
             prompt = SEARCH_PROMPT.format(query=_escape_braces(query))
             tokens = 96 if max_tokens is None else max_tokens
         elif previous:
@@ -144,14 +165,14 @@ class FrameVLM:
             self._processor,
             self._config,
             prompt,
-            num_images=1,
+            num_images=len(images),
         )
         with self._infer_lock:
             result = generate(
                 self._model,
                 self._processor,
                 formatted,
-                image=[image],
+                image=images,
                 max_tokens=tokens,
                 temperature=0.0,
                 verbose=False,
